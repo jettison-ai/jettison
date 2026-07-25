@@ -35,6 +35,12 @@ RETRIEVE_TOOL = "jettison_retrieve_content"
 HEAD_CHARS = 400
 TAIL_CHARS = 200
 
+# Argument fields that carry file *content* — the only ones safe to hold
+# out, because the write has already landed on disk. Paths, commands,
+# patterns and every other field are left alone: they are what the call
+# means, and shortening them would change behaviour.
+CONTENT_ARG_FIELDS = ("content", "new_string", "new_str", "file_text", "text")
+
 
 @dataclass
 class ShapedContent:
@@ -74,7 +80,7 @@ class HorizonManager:
         return key
 
     # -- shaping ---------------------------------------------------------
-    def _placeholder(self, text: str, key: str, tokens: int) -> str:
+    def _placeholder(self, text: str, key: str, tokens: int, kind: str = "tool output") -> str:
         head = text[:HEAD_CHARS]
         tail = text[-TAIL_CHARS:] if len(text) > HEAD_CHARS + TAIL_CHARS else ""
         body = head + ("\n…\n" + tail if tail else "")
@@ -83,8 +89,9 @@ class HorizonManager:
         # out unambiguously.
         return (
             f"{body}\n"
-            f"[jettison: {tokens:,} tokens held out of context to keep this session cheap. "
-            f"Retrieve the full content by calling {RETRIEVE_TOOL} with key={key}]"
+            f"[jettison: {tokens:,} tokens of {kind} held out of context to keep this "
+            f"session cheap. The full text is unchanged on disk; retrieve it here by "
+            f"calling {RETRIEVE_TOOL} with key={key}]"
         )
 
     def _preserves_commitments(self, original: str, placeholder: str) -> bool:
@@ -99,7 +106,11 @@ class HorizonManager:
         return True
 
     def shape_result(
-        self, text: str, remaining_turns: int, stats: HorizonStats
+        self,
+        text: str,
+        remaining_turns: int,
+        stats: HorizonStats,
+        kind: str = "tool output",
     ) -> tuple[str, ShapeDecision]:
         tokens = count_text(text, self.model).tokens
         decision = evaluate_shape(tokens, remaining_turns, self.model)
@@ -108,7 +119,7 @@ class HorizonManager:
             return text, decision
 
         key = self._remember(text, tokens)
-        placeholder = self._placeholder(text, key, tokens)
+        placeholder = self._placeholder(text, key, tokens, kind)
         if not self._preserves_commitments(text, placeholder):
             stats.skipped_commitments += 1
             return text, ShapeDecision(False, "would drop a commitment", 0.0, 0)
@@ -117,6 +128,43 @@ class HorizonManager:
         stats.tokens_freed += decision.tokens_freed
         stats.projected_usd += decision.projected_usd
         return placeholder, decision
+
+    # -- tool-call arguments --------------------------------------------
+    def shape_tool_call_args(
+        self, message: dict[str, Any], provider: str, remaining_turns: int, stats: HorizonStats
+    ) -> None:
+        """Shape oversized *arguments* of tool calls in the newest turn.
+
+        Measured on 101 real sessions, tool-call arguments are the single
+        largest category of resident cost — larger than tool results — and
+        Write/Edit are two thirds of it, because the full text of every
+        file the agent writes stays in the conversation for the rest of the
+        session.
+
+        That text is uniquely safe to hold out: the write already happened,
+        so the content is on disk. The agent can re-read the file, or pull
+        the exact bytes back with the retrieve meta-tool. Only argument
+        fields that carry file *content* are touched — never paths,
+        commands, patterns or any other field, because those are what the
+        call means.
+        """
+        content = message.get("content")
+        blocks = content if isinstance(content, list) else []
+        for block in blocks:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            args = block.get("input")
+            if not isinstance(args, dict):
+                continue
+            for field_name in CONTENT_ARG_FIELDS:
+                value = args.get(field_name)
+                if not isinstance(value, str):
+                    continue
+                shaped, decision = self.shape_result(
+                    value, remaining_turns, stats, kind="written file content"
+                )
+                if decision.should_shape:
+                    args[field_name] = shaped
 
     # -- request integration --------------------------------------------
     def shape_newest_turn(
@@ -133,8 +181,14 @@ class HorizonManager:
         if not isinstance(messages, list) or not messages:
             return stats
 
+        # The newest turn spans the assistant message the model just
+        # produced and the tool_result the client just appended. Neither is
+        # in a provider cache yet, so both are free to rewrite.
         for msg in reversed(messages):
             if not isinstance(msg, dict):
+                break
+            if msg.get("role") == "assistant":
+                self.shape_tool_call_args(msg, provider, remaining_turns, stats)
                 break
             content = msg.get("content")
             if provider == "anthropic":

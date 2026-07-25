@@ -126,3 +126,77 @@ def test_retrieve_meta_tool_returns_original():
     assert resolve_meta_call(store, RETRIEVE_TOOL, {"key": key}, m) == BIG
     missing = resolve_meta_call(store, RETRIEVE_TOOL, {"key": "nope"}, m)
     assert "no held content" in missing
+
+
+BIG_FILE = "export function handler(req) {\n  return process(req);\n}\n" * 300
+
+
+def test_write_content_arg_is_shaped_but_path_is_not():
+    """The biggest measured category: file content sitting in Write args."""
+    m = HorizonManager()
+    body = {
+        "messages": [
+            {"role": "user", "content": "write it"},
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "w", "name": "Write",
+                 "input": {"file_path": "/src/handler.ts", "content": BIG_FILE}}]},
+        ]
+    }
+    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    args = body["messages"][1]["content"][0]["input"]
+    assert stats.shaped == 1
+    assert args["file_path"] == "/src/handler.ts"     # identity untouched
+    assert len(args["content"]) < len(BIG_FILE)
+    assert "on disk" in args["content"]
+    key = args["content"].split("key=")[1].split("]")[0]
+    assert m.retrieve(key) == BIG_FILE                # fully reversible
+
+
+def test_edit_new_string_is_shaped():
+    m = HorizonManager()
+    body = {
+        "messages": [
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "e", "name": "Edit",
+                 "input": {"file_path": "/a.py", "old_string": "x", "new_string": BIG_FILE}}]},
+        ]
+    }
+    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    args = body["messages"][0]["content"][0]["input"]
+    assert stats.shaped == 1
+    assert args["old_string"] == "x"                  # anchor must survive exactly
+    assert len(args["new_string"]) < len(BIG_FILE)
+
+
+def test_bash_command_is_never_shaped():
+    """A command IS the call; shortening it would change behaviour."""
+    m = HorizonManager()
+    long_cmd = "grep -rn 'pattern' " + " ".join(f"/path/{i}.py" for i in range(2000))
+    body = {
+        "messages": [
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "b", "name": "Bash",
+                 "input": {"command": long_cmd}}]},
+        ]
+    }
+    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    assert stats.shaped == 0
+    assert body["messages"][0]["content"][0]["input"]["command"] == long_cmd
+
+
+def test_history_tool_call_args_untouched():
+    m = HorizonManager()
+    body = {
+        "messages": [
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "old", "name": "Write",
+                 "input": {"file_path": "/a", "content": BIG_FILE}}]},
+            {"role": "user", "content": "next"},
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "new", "name": "Write",
+                 "input": {"file_path": "/b", "content": BIG_FILE}}]},
+        ]
+    }
+    m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    assert body["messages"][0]["content"][0]["input"]["content"] == BIG_FILE
+    assert body["messages"][2]["content"][0]["input"]["content"] != BIG_FILE
