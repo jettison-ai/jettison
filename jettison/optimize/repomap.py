@@ -26,6 +26,15 @@ import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from jettison.optimize.importance import (
+    Signals,
+    ceilings_for,
+    complexity_score,
+    git_commit_counts,
+    score,
+    semantic_score,
+)
+
 SKIP_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__", "dist", "build",
     ".mypy_cache", ".pytest_cache", ".ruff_cache", "site-packages", ".tox",
@@ -52,15 +61,18 @@ class Module:
     symbols: list[Symbol] = field(default_factory=list)
     lines: int = 0
     imported_by: int = 0
+    complexity: int = 0
+    commits: int = 0
+    rank: float = 0.0
 
-    @property
-    def score(self) -> float:
-        """Cheap stand-in for RepoMaster's centrality analysis.
-
-        How often a module is imported elsewhere, plus how much it defines.
-        Both are strong proxies for "the agent will need this".
-        """
-        return self.imported_by * 10 + len(self.symbols)
+    def signals(self) -> Signals:
+        return Signals(
+            imports=self.imported_by,
+            usage=len(self.symbols),
+            complexity=self.complexity,
+            commits=self.commits,
+            semantic=semantic_score(self.path),
+        )
 
 
 def _signature(node: ast.AST) -> str:
@@ -84,7 +96,11 @@ def parse_module(path: Path, root: Path) -> Module | None:
         tree = ast.parse(source)
     except (OSError, SyntaxError, ValueError):
         return None
-    mod = Module(path=str(path.relative_to(root)), lines=source.count("\n") + 1)
+    mod = Module(
+        path=str(path.relative_to(root)),
+        lines=source.count("\n") + 1,
+        complexity=complexity_score(tree),
+    )
     for node in tree.body:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             doc = (ast.get_docstring(node) or "").strip().split("\n")[0][:80]
@@ -126,12 +142,21 @@ def scan(root: Path) -> list[Module]:
                 target = node.names[0].name.split(".")[-1] if node.names else None
             if target and target in names:
                 names[target].imported_by += 1
+
+    # Git churn, then the weighted rank. Done after the full walk because
+    # every signal is normalized against this repo's own maximum.
+    commits = git_commit_counts(root)
+    for mod in modules:
+        mod.commits = commits.get(mod.path, 0)
+    ceilings = ceilings_for([m.signals() for m in modules])
+    for mod in modules:
+        mod.rank = score(mod.signals(), ceilings)
     return modules
 
 
 def render(modules: list[Module], max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
     budget = max_tokens * CHARS_PER_TOKEN
-    ranked = sorted(modules, key=lambda m: (-m.score, m.path))
+    ranked = sorted(modules, key=lambda m: (-m.rank, m.path))
     out = [
         "Structure of this repository, so you do not need to explore it.",
         "Line numbers are exact — read a specific range instead of a whole file.",

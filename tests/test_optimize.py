@@ -191,3 +191,48 @@ def test_repo_map_injection_is_replaceable(tmp_path):
     assert remove_repo_map(tmp_path) is True
     assert "jettison" not in (tmp_path / "CLAUDE.md").read_text()
     assert "hand-written rules" in (tmp_path / "CLAUDE.md").read_text()
+
+
+def test_importance_weights_match_repomaster():
+    """Ported weighting, not invented. Git churn must dominate."""
+    from jettison.optimize.importance import WEIGHTS
+
+    assert WEIGHTS["git_history"] == 4.0
+    assert WEIGHTS["imports"] == 3.0
+    assert WEIGHTS["usage"] == 2.0
+    assert WEIGHTS["git_history"] > WEIGHTS["imports"] > WEIGHTS["usage"]
+
+
+def test_ranking_demotes_tests_and_promotes_core(tmp_path):
+    from jettison.optimize.repomap import scan
+
+    (tmp_path / "core.py").write_text(
+        "class Engine:\n    def run(self):\n        if True:\n            for i in range(3):\n                pass\n"
+    )
+    (tmp_path / "test_core.py").write_text("from core import Engine\n\ndef test_x():\n    assert Engine()\n")
+    (tmp_path / "app.py").write_text("from core import Engine\n\ndef main():\n    Engine().run()\n")
+    ranked = sorted(scan(tmp_path), key=lambda m: -m.rank)
+    assert ranked[0].path == "core.py"
+    assert ranked[-1].path.startswith("test_")
+
+
+def test_git_scoring_degrades_without_git(tmp_path):
+    """A non-git directory must score 0 on churn, not explode."""
+    from jettison.optimize.importance import git_commit_counts
+
+    assert git_commit_counts(tmp_path) == {}
+
+
+def test_verbosity_block_is_replaceable(tmp_path):
+    from jettison.optimize import verbosity
+
+    (tmp_path / "CLAUDE.md").write_text("# Rules\n\nkeep me\n")
+    verbosity.install(tmp_path, "balanced")
+    verbosity.install(tmp_path, "terse")          # switching level replaces
+    text = (tmp_path / "CLAUDE.md").read_text()
+    assert text.count("jettison:verbosity") == 2
+    assert "as few words as carry the meaning" in text
+    assert "keep me" in text
+    assert verbosity.uninstall(tmp_path) is True
+    assert "jettison" not in (tmp_path / "CLAUDE.md").read_text()
+    assert "keep me" in (tmp_path / "CLAUDE.md").read_text()

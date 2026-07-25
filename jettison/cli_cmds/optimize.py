@@ -14,7 +14,16 @@ from jettison.cli import main
 @click.option("--global", "global_scope", is_flag=True, help="Install for all projects (~/.claude).")
 @click.option("--scout", is_flag=True, help="Also install the navigation subagent (measured -34% on authoring work; off by default).")
 @click.option("--no-prune", is_flag=True, help="Skip the read-pruning hook.")
-def optimize_cmd(project: Path | None, global_scope: bool, scout: bool, no_prune: bool) -> None:
+@click.option("--no-terse", is_flag=True, help="Skip output-verbosity reduction.")
+@click.option("--terse-level", type=click.Choice(["balanced", "terse"]), default="balanced", show_default=True)
+def optimize_cmd(
+    project: Path | None,
+    global_scope: bool,
+    scout: bool,
+    no_prune: bool,
+    no_terse: bool,
+    terse_level: str,
+) -> None:
     """Install client-side optimizations for Claude Code.
 
     \b
@@ -24,7 +33,13 @@ def optimize_cmd(project: Path | None, global_scope: bool, scout: bool, no_prune
     """
     from rich.console import Console
 
-    from jettison.optimize import add_delegation_rule, add_repo_map, install_hook, install_scout
+    from jettison.optimize import (
+        add_delegation_rule,
+        add_repo_map,
+        install_hook,
+        install_scout,
+        verbosity,
+    )
 
     console = Console()
     console.print()
@@ -32,6 +47,11 @@ def optimize_cmd(project: Path | None, global_scope: bool, scout: bool, no_prune
     md, tokens = add_repo_map(project)
     console.print(f"[green]✓[/green] repo map  [dim]{md}[/dim]")
     console.print(f"  [dim]{tokens:,} tokens indexing the whole codebase, so the agent never explores[/dim]")
+
+    if not no_terse:
+        md = verbosity.install(project, terse_level)
+        console.print(f"[green]✓[/green] output style ({terse_level})  [dim]{md}[/dim]")
+        console.print("  [dim]output is billed ~50x cache-read and re-sent every later turn[/dim]")
 
     if scout:
         p = install_scout(project, global_scope)
@@ -62,10 +82,12 @@ def unoptimize_cmd(project: Path | None, global_scope: bool) -> None:
         remove_repo_map,
         uninstall_hook,
         uninstall_scout,
+        verbosity,
     )
 
     console = Console()
     console.print(f"repo map removed: {remove_repo_map(project)}")
+    console.print(f"output style removed: {verbosity.uninstall(project)}")
     console.print(f"scout agent removed: {uninstall_scout(project, global_scope)}")
     console.print(f"delegation rule removed: {remove_delegation_rule(project)}")
     console.print(f"pruning hook removed: {uninstall_hook(project, global_scope)}")

@@ -12,6 +12,19 @@ Jettison is not affiliated with, endorsed by, or sponsored by the Headroom
 project. "Headroom" is a mark of its respective owners; Jettison makes no
 trademark claim to it.
 
+Jettison additionally reimplements techniques described by the following
+projects. No code is copied and no runtime dependency is taken; the
+approaches are credited here:
+
+- SWE-Pruner (MIT), ByteDance Research, arXiv:2601.16746 — query-aware
+  code pruning. Jettison's line scorer is a deterministic approximation of
+  their neural skimmer.
+- RepoMaster (MIT) — pre-built structural repository indexes, and the
+  importance weighting (git history 4.0, imports 3.0, usage 2.0,
+  complexity 1.0, semantic 0.5) used to rank Jettison's repo map.
+- Caveman (MIT), Julius Brussee — output verbosity reduction via injected
+  response-style instructions.
+
 Original modules in this repository (jettison/scanner, jettison/compiler,
 jettison/registry, jettison/proxy, jettison/verifier, jettison/savings,
 jettison/adapters, and the Jettison CLI) are:
