@@ -97,7 +97,7 @@ async def test_interception_loop_resolves_meta_tools(env_workspace):
     upstream_client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=fake.app()), base_url="http://upstream"
     )
-    config = JettisonProxyConfig(anthropic_upstream="http://upstream", client_label="test")
+    config = JettisonProxyConfig(anthropic_upstream="http://upstream", client_label="test", horizon=False)
     app = create_app(config, http_client=upstream_client)
 
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://jettison")
@@ -146,7 +146,7 @@ async def test_bypass_header_forwards_untouched(env_workspace):
         transport=httpx.ASGITransport(app=fake.app()), base_url="http://upstream"
     )
     app = create_app(
-        JettisonProxyConfig(anthropic_upstream="http://upstream"), http_client=upstream_client
+        JettisonProxyConfig(anthropic_upstream="http://upstream", horizon=False), http_client=upstream_client
     )
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://jettison")
     body = {
@@ -165,7 +165,7 @@ async def test_small_tool_lists_left_alone(env_workspace):
         transport=httpx.ASGITransport(app=fake.app()), base_url="http://upstream"
     )
     app = create_app(
-        JettisonProxyConfig(anthropic_upstream="http://upstream"), http_client=upstream_client
+        JettisonProxyConfig(anthropic_upstream="http://upstream", horizon=False), http_client=upstream_client
     )
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://jettison")
     body = {

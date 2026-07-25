@@ -52,7 +52,7 @@ def proxy_for(fake: FakeProvider, **config_kwargs):
         transport=httpx.ASGITransport(app=fake.app()), base_url="http://upstream"
     )
     app = create_app(
-        JettisonProxyConfig(anthropic_upstream="http://upstream", client_label="test", **config_kwargs),
+        JettisonProxyConfig(anthropic_upstream="http://upstream", client_label="test", **config_kwargs, horizon=False),
         http_client=upstream,
     )
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://jettison")

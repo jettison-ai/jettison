@@ -238,26 +238,30 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
 
         optimized = rewrite.rewrote_tools or rewrite.rewrote_system
 
-        # 3a. Horizon Manager: shape oversized tool results in the newest
-        # turn. Newest-turn-only is the cache-safety rule — that turn is not
-        # in any provider cache yet, so rewriting it is free, while touching
-        # history would cost a cache-write at ~12.5x the read rate.
+        # 3a. Horizon Manager: shape oversized tool results and file-content
+        # arguments, identically at every position (see horizon/manager.py).
         horizon_stats = None
         if horizon_mgr is not None:
+            # The retrieve tool is declared from the FIRST request, not when
+            # shaping first happens. Tools sit at the front of the cached
+            # prefix, so adding one mid-session invalidates the entire cache
+            # — measured live as a cost increase that swamped the savings.
+            tools_out = body.get("tools")
+            if isinstance(tools_out, list) and tools_out:
+                rt = retrieve_tool_def(provider)
+                rt_name = (rt.get("function") or {}).get("name", rt.get("name"))
+                names = {
+                    (t.get("function") or {}).get("name") or t.get("name")
+                    for t in tools_out
+                    if isinstance(t, dict)
+                }
+                if rt_name not in names:
+                    tools_out.append(rt)
+
             horizon_stats = horizon_mgr.shape_messages(
                 body, provider, config.horizon_expected_turns
             )
             if horizon_stats.shaped:
-                tools_out = body.get("tools")
-                if isinstance(tools_out, list):
-                    rt = retrieve_tool_def(provider)
-                    names = {
-                        (t.get("function") or {}).get("name") or t.get("name")
-                        for t in tools_out
-                        if isinstance(t, dict)
-                    }
-                    if (rt.get("function") or {}).get("name", rt.get("name")) not in names:
-                        tools_out.append(rt)
                 ledger.record_event(
                     tokens_before=horizon_stats.tokens_freed,
                     tokens_after=0,
