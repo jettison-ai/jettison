@@ -1,11 +1,18 @@
 """Horizon Manager: keep long sessions from re-billing everything forever.
 
-Shapes oversized tool results **in the newest turn only**, replacing the
-body with a compact, retrievable placeholder. Newest-turn-only is not a
-simplification — it is the cache-safety rule (docs/CACHE_SAFETY.md): the
-newest turn is not yet in any provider cache, so rewriting it costs
-nothing, while rewriting history would force a cache-write at ~12.5x the
-read rate.
+Shapes oversized tool results and file-content arguments, replacing the
+body with a compact, retrievable placeholder.
+
+The transform is applied at **every** position in the conversation, and
+identically each time. That is the cache-safety rule here
+(docs/CACHE_SAFETY.md): the client never sees our rewriting, so it replays
+the original bytes every turn. Shaping only the newest turn sent the
+provider a shaped body once and originals thereafter, mismatching the
+cached prefix and forcing a full re-cache on every subsequent turn —
+measured live, that doubled cache-write tokens and turned a 27% token
+saving into a 36% cost increase. Determinism is what makes this safe:
+placeholders are a pure function of content, and the shape/skip decision
+is frozen on first sight.
 
 Nothing is destroyed. Originals are held locally and can be pulled back
 with the `jettison_retrieve_content` meta-tool, so the model can always
@@ -65,6 +72,11 @@ class HorizonManager:
     model: str = DEFAULT_MODEL
     store: dict[str, ShapedContent] = field(default_factory=dict)
     max_entries: int = 512
+    # content hash -> whether we shape it. Frozen on first sight: the
+    # economics depend on remaining turns, which changes every request, so
+    # re-deciding would emit different bytes for the same content and break
+    # the prefix cache. See shape_messages.
+    decisions: dict[str, bool] = field(default_factory=dict)
 
     # -- retrieval -------------------------------------------------------
     def retrieve(self, key: str) -> str | None:
@@ -112,17 +124,28 @@ class HorizonManager:
         stats: HorizonStats,
         kind: str = "tool output",
     ) -> tuple[str, ShapeDecision]:
+        content_key = hashlib.sha256(text.encode(errors="replace")).hexdigest()[:12]
         tokens = count_text(text, self.model).tokens
-        decision = evaluate_shape(tokens, remaining_turns, self.model)
-        if not decision.should_shape:
-            stats.skipped_value += 1
-            return text, decision
+
+        prior = self.decisions.get(content_key)
+        if prior is False:
+            return text, ShapeDecision(False, "previously declined; decision is frozen", 0.0, 0)
+        if prior is True:
+            decision = ShapeDecision(True, "previously shaped; decision is frozen", 0.0, 0)
+        else:
+            decision = evaluate_shape(tokens, remaining_turns, self.model)
+            if not decision.should_shape:
+                self.decisions[content_key] = False
+                stats.skipped_value += 1
+                return text, decision
 
         key = self._remember(text, tokens)
         placeholder = self._placeholder(text, key, tokens, kind)
         if not self._preserves_commitments(text, placeholder):
+            self.decisions[content_key] = False
             stats.skipped_commitments += 1
             return text, ShapeDecision(False, "would drop a commitment", 0.0, 0)
+        self.decisions[content_key] = True
 
         stats.shaped += 1
         stats.tokens_freed += decision.tokens_freed
@@ -133,7 +156,7 @@ class HorizonManager:
     def shape_tool_call_args(
         self, message: dict[str, Any], provider: str, remaining_turns: int, stats: HorizonStats
     ) -> None:
-        """Shape oversized *arguments* of tool calls in the newest turn.
+        """Shape oversized file-content *arguments* of tool calls.
 
         Measured on 101 real sessions, tool-call arguments are the single
         largest category of resident cost — larger than tool results — and
@@ -167,37 +190,46 @@ class HorizonManager:
                     args[field_name] = shaped
 
     # -- request integration --------------------------------------------
-    def shape_newest_turn(
+    def shape_messages(
         self, body: dict[str, Any], provider: str, remaining_turns: int
     ) -> HorizonStats:
-        """Rewrite oversized tool results in the final message only.
+        """Shape oversized tool results and file-content arguments, everywhere.
 
-        Walking backwards and stopping at the first non-tool_result message
-        keeps us strictly inside the turn the client just produced, which is
-        the only part of the request no provider has cached yet.
+        This applies to the WHOLE message list, not just the newest turn,
+        and that is a cache-safety requirement rather than a violation of
+        one. The client never sees our shaping — we rewrite on the way out —
+        so it replays the original bytes on every subsequent request. Shaping
+        only the newest turn therefore sent the provider a shaped body once
+        and the original forever after, mismatching the cached prefix and
+        forcing a full re-cache every turn. Measured live, that roughly
+        doubled cache-write tokens and turned a 27% token saving into a 36%
+        cost *increase*.
+
+        Applying the same deterministic transform at every position keeps the
+        bytes we send byte-identical turn over turn, which is what the
+        provider cache actually requires. Determinism is load-bearing:
+        placeholders derive purely from content (hash-keyed), and the
+        shape/skip decision is frozen on first sight in `decisions` because
+        the economics depend on remaining turns, which changes per request.
         """
         stats = HorizonStats()
         messages = body.get("messages")
-        if not isinstance(messages, list) or not messages:
+        if not isinstance(messages, list):
             return stats
 
-        # The newest turn spans the assistant message the model just
-        # produced and the tool_result the client just appended. Neither is
-        # in a provider cache yet, so both are free to rewrite.
-        for msg in reversed(messages):
+        for msg in messages:
             if not isinstance(msg, dict):
-                break
-            if msg.get("role") == "assistant":
-                self.shape_tool_call_args(msg, provider, remaining_turns, stats)
-                break
+                continue
+            role = msg.get("role")
             content = msg.get("content")
+
+            if role == "assistant":
+                self.shape_tool_call_args(msg, provider, remaining_turns, stats)
+                continue
+
             if provider == "anthropic":
-                if msg.get("role") != "user" or not isinstance(content, list):
-                    break
-                if not any(
-                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content
-                ):
-                    break
+                if role != "user" or not isinstance(content, list):
+                    continue
                 for block in content:
                     if not isinstance(block, dict) or block.get("type") != "tool_result":
                         continue
@@ -213,11 +245,9 @@ class HorizonManager:
                                 )
                                 part["text"] = shaped
             else:
-                if msg.get("role") != "tool" or not isinstance(content, str):
-                    break
-                shaped, _ = self.shape_result(content, remaining_turns, stats)
-                msg["content"] = shaped
-            break  # newest turn only
+                if role == "tool" and isinstance(content, str):
+                    shaped, _ = self.shape_result(content, remaining_turns, stats)
+                    msg["content"] = shaped
 
         return stats
 

@@ -74,8 +74,12 @@ def test_shaping_refuses_when_a_commitment_would_be_lost():
     assert stats.skipped_commitments == 1
 
 
-def test_shape_newest_turn_only_anthropic():
-    """History must not be touched — it is already in the provider cache."""
+def test_shaping_is_applied_at_every_position_anthropic():
+    """Every occurrence is shaped, because the client replays originals.
+
+    Shaping only the newest turn made the bytes we send differ from the
+    bytes the provider cached, forcing a full re-cache every turn.
+    """
     m = HorizonManager()
     body = {
         "messages": [
@@ -84,10 +88,12 @@ def test_shape_newest_turn_only_anthropic():
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "new", "content": BIG}]},
         ]
     }
-    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
-    assert stats.shaped == 1
-    assert body["messages"][0]["content"][0]["content"] == BIG          # history intact
-    assert body["messages"][2]["content"][0]["content"] != BIG          # newest shaped
+    stats = m.shape_messages(body, "anthropic", remaining_turns=40)
+    assert stats.shaped == 2
+    assert body["messages"][0]["content"][0]["content"] != BIG
+    assert body["messages"][2]["content"][0]["content"] != BIG
+    # identical input must yield identical output, or the prefix moves
+    assert body["messages"][0]["content"][0]["content"] == body["messages"][2]["content"][0]["content"]
 
 
 def test_shape_newest_turn_openai():
@@ -99,16 +105,15 @@ def test_shape_newest_turn_openai():
             {"role": "tool", "tool_call_id": "new", "content": BIG},
         ]
     }
-    stats = m.shape_newest_turn(body, "openai", remaining_turns=40)
-    assert stats.shaped == 1
-    assert body["messages"][0]["content"] == BIG
-    assert body["messages"][2]["content"] != BIG
+    stats = m.shape_messages(body, "openai", remaining_turns=40)
+    assert stats.shaped == 2
+    assert body["messages"][0]["content"] == body["messages"][2]["content"] != BIG
 
 
 def test_non_tool_turn_is_untouched():
     m = HorizonManager()
     body = {"messages": [{"role": "user", "content": "just a question"}]}
-    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    stats = m.shape_messages(body, "anthropic", remaining_turns=40)
     assert stats.shaped == 0
     assert body["messages"][0]["content"] == "just a question"
 
@@ -142,7 +147,7 @@ def test_write_content_arg_is_shaped_but_path_is_not():
                  "input": {"file_path": "/src/handler.ts", "content": BIG_FILE}}]},
         ]
     }
-    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    stats = m.shape_messages(body, "anthropic", remaining_turns=40)
     args = body["messages"][1]["content"][0]["input"]
     assert stats.shaped == 1
     assert args["file_path"] == "/src/handler.ts"     # identity untouched
@@ -161,7 +166,7 @@ def test_edit_new_string_is_shaped():
                  "input": {"file_path": "/a.py", "old_string": "x", "new_string": BIG_FILE}}]},
         ]
     }
-    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    stats = m.shape_messages(body, "anthropic", remaining_turns=40)
     args = body["messages"][0]["content"][0]["input"]
     assert stats.shaped == 1
     assert args["old_string"] == "x"                  # anchor must survive exactly
@@ -179,12 +184,13 @@ def test_bash_command_is_never_shaped():
                  "input": {"command": long_cmd}}]},
         ]
     }
-    stats = m.shape_newest_turn(body, "anthropic", remaining_turns=40)
+    stats = m.shape_messages(body, "anthropic", remaining_turns=40)
     assert stats.shaped == 0
     assert body["messages"][0]["content"][0]["input"]["command"] == long_cmd
 
 
-def test_history_tool_call_args_untouched():
+def test_same_content_shapes_identically_across_requests():
+    """The cache-safety property: byte-identical output turn over turn."""
     m = HorizonManager()
     body = {
         "messages": [
@@ -197,6 +203,18 @@ def test_history_tool_call_args_untouched():
                  "input": {"file_path": "/b", "content": BIG_FILE}}]},
         ]
     }
-    m.shape_newest_turn(body, "anthropic", remaining_turns=40)
-    assert body["messages"][0]["content"][0]["input"]["content"] == BIG_FILE
-    assert body["messages"][2]["content"][0]["input"]["content"] != BIG_FILE
+    # turn N: shaped with many turns remaining
+    m.shape_messages(body, "anthropic", remaining_turns=40)
+    first = body["messages"][2]["content"][0]["input"]["content"]
+    # turn N+20: the client replays the original; remaining turns is now
+    # small enough that a fresh evaluation would decline. The frozen
+    # decision must still produce the same bytes.
+    replay = {
+        "messages": [
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "new", "name": "Write",
+                 "input": {"file_path": "/b", "content": BIG_FILE}}]},
+        ]
+    }
+    m.shape_messages(replay, "anthropic", remaining_turns=1)
+    assert replay["messages"][0]["content"][0]["input"]["content"] == first

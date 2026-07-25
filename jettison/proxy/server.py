@@ -244,7 +244,7 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
         # history would cost a cache-write at ~12.5x the read rate.
         horizon_stats = None
         if horizon_mgr is not None:
-            horizon_stats = horizon_mgr.shape_newest_turn(
+            horizon_stats = horizon_mgr.shape_messages(
                 body, provider, config.horizon_expected_turns
             )
             if horizon_stats.shaped:
