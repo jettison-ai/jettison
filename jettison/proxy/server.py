@@ -32,7 +32,12 @@ from jettison.proxy import formats, heartbeat
 from jettison.horizon import HorizonManager, retrieve_tool_def
 from jettison.proxy.interceptor import InterceptionLoop, SessionState
 from jettison.proxy.native_deferral import detects_native_deferral
-from jettison.proxy.rewrite import RewriteResult, rewrite_request, session_key
+from jettison.proxy.rewrite import (
+    RewriteResult,
+    minify_tools_inline,
+    rewrite_request,
+    session_key,
+)
 from jettison.registry.prompt import render_capability_index
 from jettison.registry.store import CapabilityStore
 from jettison.savings import ledger
@@ -52,6 +57,9 @@ class JettisonProxyConfig:
     openai_upstream: str = DEFAULT_OPENAI_UPSTREAM
     client_label: str = "unknown"
     optimize_tools: bool = True
+    # Shrink tool schemas in place instead of swapping the catalog for
+    # meta-tools. Same tools, same contracts, byte-stable prefix.
+    minify_tools_inline: bool = False
     optimize_system: bool = True
     min_tools_to_optimize: int = 5
     # OpenClaw-style cache-warming pings: keep the warmed prefix, drop the
@@ -235,6 +243,13 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
 
                 _replace_system(body, provider, rewrite.compiled_system_text, check.restored_text)
                 reinflated = True
+
+        if config.minify_tools_inline and not rewrite.rewrote_tools:
+            mb, ma = minify_tools_inline(body, provider, model)
+            if mb > ma:
+                rewrite.tokens_before += mb
+                rewrite.tokens_after += ma
+                rewrite.rewrote_tools = True
 
         optimized = rewrite.rewrote_tools or rewrite.rewrote_system
 

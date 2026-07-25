@@ -4,6 +4,17 @@ Everything measured, with provenance. Reproduce any row with the script
 named beside it (`research/`). Corrections are kept in place rather than
 edited away — the retractions are part of the record.
 
+> ## ⚠ READ PART 2 BEFORE QUOTING ANYTHING FROM PART 1
+>
+> Part 1 is **replay-measured** — our logic applied to recorded traffic.
+> Part 2 is a **live A/B** of real Claude Code doing real work, and it
+> overturned Part 1's headline. Replays cannot model the cache-write churn
+> a rewriter provokes, so they systematically overstate.
+>
+> **The 8.5% figure in §5 is retracted.** Live measurement of the same
+> product: −36% to −196%. Part 1's *descriptive* findings (where tokens go,
+> what context is made of) still stand; its *savings projections* do not.
+
 **Reference corpus:** 101 local Claude Code sessions, 10,696 model
 requests, ~$1,420 of real spend, on a machine with **zero MCP servers**.
 
@@ -84,7 +95,7 @@ did. This is why `jettison/horizon/` never mutates history and why the
 break-even lives in code (`eviction_break_even_turns`) rather than prose —
 if pricing narrows, re-run it.
 
-## 5. Headline: savings as a share of the real bill (`07`)
+## 5. Savings as a share of the real bill (`07`) — ⚠ RETRACTED, see Part 2
 
 ```
 fewer cache reads    $114.57   (381,910,345 token-turns)
@@ -94,6 +105,11 @@ TOTAL                $120.95   =  8.5% of a $1,420 bill
 
 **8.5%, with zero MCP servers configured.** Output tokens (11% of the
 bill) are untouched — Jettison never shortens answers.
+
+> **RETRACTED.** This is a replay estimate. The live A/B (Part 2 §11) of
+> this exact product measured −36% to −196%, because a replay prices the
+> content that is present and never the re-caching a rewriter causes.
+> Kept here as the record of how the error was made.
 
 ### By scenario (% of total bill)
 
@@ -241,3 +257,117 @@ one. Superseded by finding 2, which uses token-turns.
    transfer unchanged (both write files the same way), but every number in
    this document comes from Claude Code sessions. Say "expected to
    transfer," not "measured," until `~/.codex/sessions` is replayed.
+
+---
+
+# Part 2 — Live A/B on real Claude Code sessions (the decisive evidence)
+
+Everything in Part 1 was **replay**: applying our logic to recorded
+traffic. Part 2 ran real Claude Code doing real coding work on a real
+repo (pallets/click), identical tasks, direct vs through Jettison,
+alternating arm order, measured from Claude Code's own
+`--output-format json` telemetry. Analyzer: `research/08_live_ab_test.py`.
+
+**This overturned Part 1's headline. The replay-measured 8.5% does not
+survive contact with production prompt caching.**
+
+## 11. Four configurations, four losses
+
+| Configuration | Cost vs direct | Token change | Cause |
+|---|---:|---:|---|
+| tool registry + horizon | **−36%** | −27% input | cache-write 60,805 → 114,156 |
+| horizon shaping only | **−74%** | +109% input | agent re-fetched; turns 48 → 63 |
+| inline tool minification | **−196%** | −14% input | cache-write 5,165 → 63,196 |
+| expired-content elision | **−0.2%** | small | re-cache cost exceeded savings |
+
+## 12. Root cause: the cache-write tax
+
+Cache-write costs **12.5x** cache-read. A proxy edits the request *after*
+the client has built and cached it, so the client keeps replaying the
+original bytes and every edit forces a re-cache. **We save cheap tokens
+and pay expensive ones.**
+
+Inline minification is the cleanest demonstration: it cut cache-read 30%
+and its output is provably byte-stable (identical hash over three
+identical requests, verified against a capture server) — and it *still*
+lost, because cache-write went 12x.
+
+## 13. Root cause: induced re-work
+
+Size-based shaping made the agent do **31% more turns** (48 → 63). On one
+task it did 3 Reads where the direct arm did 1.
+
+Context in an active coding agent is **working memory, not dead weight**.
+Hide a file and the agent re-reads it. The token-turns model in
+`horizon/economics.py` prices content *sitting there*; it cannot see the
+cost of the agent *going to get it back*. That is a flaw in the premise,
+not the code, and only live agents could expose it.
+
+## 14. Why the literature reports 21–54% and we measure ~0
+
+The Elicit review (`~/Downloads/Elicit - Cost-Efficient Coding Agents`)
+reports AgentDiet at 39.9–59.7% input reduction / 21.1–35.9% cost, and
+SWE-Pruner at 23–54% with success rates *improving*.
+
+The review also records that a key study ran with **prompt caching
+disabled "for consistency, limiting real-world applicability."** With
+caching off, removing 40% of input saves 40%. With caching on, removing it
+triggers a re-cache at 12.5x. **The lab gains do not transfer because the
+lab turned off the mechanism that defeats them.**
+
+This is consistent with every independent production measurement:
+headroom 2.8%, rtk 0.5%, caveman 0.4% of real spend.
+
+## 15. The architecture that does work: client-side, not proxy
+
+The two tools that measure positive in production are **both client-side**:
+RTK is a binary registered as Claude Code shell hooks; caveman is an
+output-style config the client owns.
+
+A hook edits content **before** it enters the client's conversation, so
+the client caches its own smaller content and there is nothing to
+mismatch. No cache-write tax. Worst case ≈ break-even.
+
+**Unresolved for the hook path:** induced re-work (finding 13) does *not*
+go away — trimming a read can still make the agent re-read. Must be A/B'd.
+And note RTK/caveman deliver only 0.4–0.5%, so do not assume a hook is
+automatically large.
+
+## 16. Bugs only live traffic found
+
+All fixed, all with regression tests:
+
+1. A parameter *named* `description` was deleted from tool schemas (the
+   annotation drop-list applied inside `properties`). 8 of Claude Code's
+   37 tools were affected; every call to them would have been malformed.
+   The registry verifier caught it and disabled optimization — silently.
+2. Thinking blocks lost their `signature` in SSE re-synthesis → API 400
+   `each thinking block must contain thinking`, one request *after* the
+   cause, only with extended thinking on.
+3. Shaping applied to the newest turn only, while the client replays
+   originals → prefix mismatch every turn.
+4. The retrieve tool was appended on first shaping, mid-session → tools
+   sit at the front of the cached prefix, so the whole cache invalidated.
+
+Also: two proxies bound to one port and the **old config silently served
+an entire A/B run**. Always print and verify the live config before
+trusting a measurement.
+
+---
+
+# Corrections to Part 1
+
+- **"8.5% of the real bill" is retracted for the proxy.** It was
+  replay-measured and replays cannot model cache-write churn. Live A/B on
+  the same product measured −36% to −196%.
+- The token-turns economic model is valid for *pricing residency* and
+  invalid for *predicting savings*, because it omits induced re-work.
+- Do not quote any savings number for Jettison until it is produced by
+  `research/08_live_ab_test.py` on a live A/B.
+
+# What is safe to ship today
+
+`jettison audit` only. Read-only, outside the request path, cannot cost
+anyone anything, and its findings are genuinely counter-intuitive
+(skills cost ~20 tokens each, not their file size; tool-call arguments
+are 48.6% of resident cost).

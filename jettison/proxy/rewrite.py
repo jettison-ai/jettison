@@ -75,6 +75,62 @@ def _system_as_text(system: Any) -> str:
     return ""
 
 
+def minify_tools_inline(body: dict[str, Any], provider: str, model: str) -> tuple[int, int]:
+    """Shrink every tool schema in place, keeping the tool list identical.
+
+    The registry approach (swap the catalog for meta-tools) measured
+    net-negative on real coding agents: it churns the cached prefix and
+    forces search/load round-trips. This does neither. Every tool keeps its
+    name, parameters and required list — only JSON-Schema annotations and
+    verbose prose are tightened — so the agent's choices are unchanged, no
+    content is hidden, and nothing can be 'retrieved back'.
+
+    Applied identically on every request, so the prefix stays byte-stable.
+    Returns (tokens_before, tokens_after).
+    """
+    from jettison.compiler import minify_tools as _minify
+
+    tools = body.get("tools")
+    if not isinstance(tools, list) or not tools:
+        return 0, 0
+    before = _tool_list_tokens(tools, model)
+
+    if provider == "openai":
+        normalized = [
+            {
+                "name": (t.get("function") or {}).get("name", t.get("name", "")),
+                "description": (t.get("function") or {}).get("description", ""),
+                "input_schema": (t.get("function") or {}).get("parameters") or {},
+            }
+            for t in tools
+        ]
+    else:
+        normalized = tools
+
+    minified = {m.name: m for m in _minify(normalized).tools}
+    out = []
+    for t in tools:
+        name = _tool_name(t, provider)
+        m = minified.get(name)
+        if m is None:
+            out.append(t)
+            continue
+        if provider == "openai":
+            fn = dict(t.get("function") or {})
+            fn["description"] = m.description
+            fn["parameters"] = m.input_schema
+            out.append({**t, "function": fn})
+        else:
+            new = {**t, "description": m.description}
+            if "input_schema" in t:
+                new["input_schema"] = m.input_schema
+            elif "inputSchema" in t:
+                new["inputSchema"] = m.input_schema
+            out.append(new)
+    body["tools"] = out
+    return before, _tool_list_tokens(out, model)
+
+
 def rewrite_request(
     body: dict[str, Any],
     provider: str,
