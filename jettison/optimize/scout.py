@@ -93,6 +93,11 @@ this conversation is re-sent on every later turn.
 
 Read files directly only when you already know the exact file and region
 you need, or when you are about to edit them.
+
+Skip the scout entirely when the task involves no exploration — writing a
+new file from scratch, or editing a file you have already read. Measured:
+delegation pays for itself on exploration-heavy work and costs a little on
+pure authoring, so the judgement matters.
 """
 
 MARKER_START = "<!-- jettison:scout -->"
