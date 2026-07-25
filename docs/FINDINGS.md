@@ -124,7 +124,63 @@ write_readback 87 occurrences / 57,214 tokens; superset 6 / 13,996;
 exact_repeat 48 / 3,480. Resident cost 29.8M token-turns ≈ **$8.94**
 (~0.6% of bill).
 
-## 8. MCP adoption on the reference machine
+## 8. Skills cost almost nothing (measured)
+
+Skills are widely adopted, so the question comes up: 10 skill invocations
+across the corpus, total resident cost **$0.01**, none large enough to
+shape.
+
+Two separate things get confused here:
+
+- **Skills listed in the system prompt** cost ~20 tokens each, because
+  Claude Code and OpenClaw emit one `name: description` line and read
+  `SKILL.md` only on invocation. 70 skills ≈ 1,400 tokens, not 70 x 5,000.
+  There is nothing here for us to save, and claiming otherwise double-counts
+  work the client already does — see correction 3.
+- **An invoked skill's body** does enter context and stay resident. The
+  Horizon Manager shapes it like any other tool result once it exceeds the
+  ~2,000-token floor. On this corpus the skills used were small, so nothing
+  triggered; a team running 5–10k-token skills early in long sessions would
+  see real savings.
+
+Framing that holds up: skills are cheap, but the file reads and writes a
+skill *triggers* are exactly where our shaping applies.
+
+## 9. Competitive baseline — independent third-party replay
+
+Headroom's README claims **"60–95% fewer tokens (for JSON data), 15-20%
+fewer tokens (for coding agents)"**; press coverage and the project site
+carry 80–95%. Those are token ratios on individual payloads.
+
+An independent analyst replayed **500 Claude Code sessions (614M tokens,
+$926.31 of spend)** and measured share-of-bill instead
+([codepointer](https://codepointer.substack.com/p/cutting-llm-token-costs-with-rtk)):
+
+| Tool | Claimed | Actual share of spend |
+|---|---|---:|
+| rtk | 60–99% | 0.5% |
+| **headroom** | 60–95% | **2.8%** |
+| caveman | "halve prose" | 0.4% |
+| all three combined | — | **3.7%** |
+| **Jettison** (our replay, §5) | — | **8.5%** |
+
+That analysis attributes the claimed-vs-actual gap to the same three causes
+found here independently: the denominator (per-payload vs per-bill),
+workload mismatch (headroom "activated on 45% of payloads" at a median 25%
+reduction), and pricing structure (cache-create and output receive no
+compression; savings land in cache-read at a tenth the rate).
+
+**Comparison caveat, state it every time:** the analyst applied Headroom's
+*published rates* to recorded traffic; we applied our *actual shaping
+logic* to recorded traffic. Both are replay estimates on different corpora,
+not a live head-to-head. Describe it as "replay-measured," never as
+"benchmarked against."
+
+The structural reason for the gap is finding 2: prior tools compress tool
+outputs, which fire on a minority of payloads. Tool-call arguments are the
+larger category and were untouched.
+
+## 10. MCP adoption on the reference machine
 
 **0 MCP servers configured across 26 projects.** Real repos that commit
 `.mcp.json` (Vortex, OpenMC, Khan/wonder-blocks, nuxt.com,
@@ -170,8 +226,18 @@ one. Superseded by finding 2, which uses token-turns.
 
 # Open measurement
 
-**Jettison + Headroom stacked savings — unmeasured.** Headroom publishes
-15–20% on coding agents for tool-output compression. We target the same
-outputs and shape the largest ones first, so their marginal contribution
-on top of Jettison is smaller than their standalone figure. Adding the
-numbers is not valid. Replay the corpus through both to settle it.
+1. **Jettison + Headroom stacked savings — unmeasured.** Headroom publishes
+   15–20% on coding agents (independently replay-measured at 2.8% of spend,
+   §9). We target the same tool outputs and shape the largest ones first, so
+   their marginal contribution on top of Jettison is smaller than either
+   figure. **Adding the numbers is not valid.** Replay this corpus through
+   both to settle it.
+2. **One-method, one-corpus comparison.** §9 compares two replay estimates
+   run on different corpora by different people. Running the codepointer
+   methodology against our corpus — and ours against theirs — would produce
+   a genuinely like-for-like number. This is the single highest-value
+   measurement left and is roughly a day of work.
+3. **Codex and Cursor transcripts unmeasured.** Argument shaping should
+   transfer unchanged (both write files the same way), but every number in
+   this document comes from Claude Code sessions. Say "expected to
+   transfer," not "measured," until `~/.codex/sessions` is replayed.
