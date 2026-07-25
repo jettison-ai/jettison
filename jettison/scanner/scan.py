@@ -111,8 +111,23 @@ def _scan_instructions(
     report: ScanReport, client: str, project_dir: Path, model: str
 ) -> None:
     files = instr_mod.DISCOVERERS[client](project_dir)
+    metadata_only = client in instr_mod.METADATA_ONLY_SKILL_CLIENTS
     for f in files:
-        tc = count_text(f.text, model)
+        if f.kind == "skill" and metadata_only:
+            # These clients already list skills as one name+description line
+            # and read the body only when the skill is invoked, so the body
+            # is NOT standing context. Counting it would inflate the bill by
+            # 10-100x per skill and claim credit for work the client already
+            # does. Charge the index line, and only that.
+            from jettison.compiler import summarize_skill
+
+            summary = summarize_skill(f.name.split(":")[-1], f.text)
+            line = f"- {summary.name}: {summary.description}"
+            tc = count_text(line, model)
+            detail = "index line only; body loaded on demand by this client"
+        else:
+            tc = count_text(f.text, model)
+            detail = ""
         report.items.append(
             ScanItem(
                 category=Category.SKILLS if f.kind == "skill" else Category.INSTRUCTIONS,
@@ -120,11 +135,14 @@ def _scan_instructions(
                 source=str(f.path),
                 tokens=tc.tokens,
                 token_label=tc.label,
+                detail=detail,
             )
         )
 
+    # Duplicate detection covers instruction files only: skill bodies that
+    # never enter standing context cannot waste standing-context tokens.
     dups = dup_mod.find_duplicates(
-        [(f.name, f.text) for f in files],
+        [(f.name, f.text) for f in files if f.kind != "skill" or not metadata_only],
         lambda text: count_text(text, model).tokens,
     )
     for g in dups:

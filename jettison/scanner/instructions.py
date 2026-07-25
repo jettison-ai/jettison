@@ -11,6 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# Clients that put only a name+description line per skill in the system
+# prompt and fetch the body on demand. For these, a skill's body is not
+# standing context and must not be billed as such — claiming it would be
+# double-counting work the client already does.
+METADATA_ONLY_SKILL_CLIENTS = frozenset({"claude", "openclaw"})
+
+
 @dataclass
 class InstructionFile:
     kind: str  # "instructions" | "skill"
