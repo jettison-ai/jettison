@@ -41,6 +41,12 @@ from jettison.pricing import cache_aware_savings, get_price
     type=float,
     help="Seconds to wait per MCP server (default: 90 — npx/uvx servers are slow to start).",
 )
+@click.option(
+    "--reads/--no-reads",
+    default=True,
+    show_default=True,
+    help="Also analyze local session transcripts for re-read waste.",
+)
 @click.option("--json", "as_json", is_flag=True, help="Emit the full report as JSON.")
 @click.option("--top", default=10, show_default=True, help="Show the N most expensive items per category.")
 def audit_cmd(
@@ -49,6 +55,7 @@ def audit_cmd(
     model: str,
     no_launch: bool,
     timeout: float | None,
+    reads: bool,
     as_json: bool,
     top: int,
 ) -> None:
@@ -74,11 +81,24 @@ def audit_cmd(
         introspect_timeout=timeout if timeout is not None else INTROSPECT_TIMEOUT_S,
     )
 
+    read_report = None
+    if reads and client in ("claude", "codex"):
+        from jettison.waste import analyze
+
+        read_report = analyze(model=model)
+
     if as_json:
-        click.echo(report.to_json())
+        import json as _json
+
+        payload = report.to_dict()
+        if read_report is not None:
+            payload["read_waste"] = read_report.to_dict()
+        click.echo(_json.dumps(payload, indent=2, default=str))
         return
 
     _render(report, model, top)
+    if read_report is not None and read_report.read_calls:
+        _render_reads(read_report, model)
 
 
 def _render(report, model: str, top: int) -> None:
@@ -151,4 +171,38 @@ def _render(report, model: str, top: int) -> None:
         "\n[bold]Next:[/bold] `jettison wrap "
         f"{report.client}` loads tools on demand and compiles instructions — "
         "with verified answer quality.\n"
+    )
+
+
+def _render_reads(r, model: str) -> None:
+    """Re-read waste from local transcripts.
+
+    Reported separately from standing context because it is a different
+    kind of cost: a wasted read is billed once when it lands and then
+    again on every later turn it stays resident, so the honest figure is
+    token-turns, not tokens.
+    """
+    from rich.console import Console
+
+    from jettison.pricing import cache_aware_savings
+
+    console = Console()
+    kinds = r.by_kind()
+    if not kinds:
+        console.print(
+            f"\n[bold]Re-read waste[/bold] [dim]({r.sessions} local sessions, "
+            f"{r.read_calls:,} reads)[/dim]: [green]none found[/green]\n"
+        )
+        return
+
+    cost = cache_aware_savings(model, cache_read_tokens_avoided=r.resident_token_turns)
+    console.print(
+        f"\n[bold]Re-read waste[/bold] [dim]({r.sessions} local sessions, "
+        f"{r.read_calls:,} reads, {r.read_tokens:,} tokens read)[/dim]"
+    )
+    for kind, (count, tokens) in kinds.items():
+        console.print(f"  {kind:16} {count:>5} occurrences   {tokens:>10,} tokens")
+    console.print(
+        f"  [dim]resident cost {r.resident_token_turns:,} token-turns "
+        f"≈ ${cost.dollars:.2f} at cache-read rates ({cost.label})[/dim]\n"
     )

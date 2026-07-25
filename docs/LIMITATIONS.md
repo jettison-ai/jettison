@@ -1,5 +1,34 @@
 # Limitations
 
+## Read this first: where Jettison's savings actually land
+
+Measured on 101 real Claude Code sessions (10,696 requests, ~$1,400 of real
+spend, prices resolved from provider tables):
+
+| Layer | Share of that bill |
+|---|---:|
+| Standing context (what Jettison v1 optimizes) | **1.3–2.1%** |
+| Re-read waste (exact repeats, supersets, write-readback) | **~0.6%** |
+| Everything else — accumulated conversation resident in the window | the rest |
+
+Why: 97.3% of input tokens were **cache reads**, and resident context on a
+median request was **185,641 tokens** (mean 297,560, p90 725,876). Standing
+context measured 11,055 tokens — **3.7% of an average request**. Cutting 85%
+of a 3.7% slice cannot produce a large bill reduction, and the honest cache-
+read pricing makes that explicit rather than hiding it behind a token
+percentage.
+
+Jettison v1 is therefore worth the most to **MCP-heavy setups** (where the
+tool catalog is genuinely large — we measured 98.1% off tool schemas on a real
+52-tool setup) and worth little to a vanilla single-repo user with no MCP
+servers. `jettison audit` tells you which one you are before you install
+anything.
+
+The dominant cost — long sessions accumulating hundreds of thousands of
+resident tokens — is addressed by history and eviction management, which is
+the deferred Horizon Manager, not by anything shipping in v1.
+
+
 Stated plainly, in the spirit of Headroom's limitations page. If your setup is
 on this list, `jettison audit` will usually tell you before you install
 anything else.
