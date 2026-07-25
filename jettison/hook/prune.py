@@ -52,6 +52,22 @@ TARGET_KEEP_RATIO = 0.45
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 
+# Lines carrying an instruction the agent must obey are kept unconditionally.
+# Vetoing the whole prune when one appears is the wrong lever — in click's
+# types.py a single "must" inside a docstring blocked 615 prunable lines.
+# Keeping the line satisfies the same requirement and still prunes the rest.
+# Deliberately narrow. The verifier's security regex is tuned for
+# *instructions* ("never deploy without approval") and matches ordinary
+# docstring prose — "must be", "never" — on almost every page of real
+# source. Applied to code it either vetoed every prune or kept the whole
+# file. What actually must not vanish from a file read is a literal
+# secret, so that is all this matches.
+MUST_KEEP = re.compile(
+    r"(secret|credential|password|passwd|api[_-]?key|access[_-]?token|"
+    r"private[_-]?key|BEGIN [A-Z ]*PRIVATE KEY)",
+    re.I,
+)
+
 
 @dataclass
 class PruneResult:
@@ -94,7 +110,7 @@ def score_lines(lines: list[str], terms: set[str]) -> list[bool]:
         stripped = content.strip()
         if not stripped:
             continue
-        if STRUCTURAL.search(content):
+        if STRUCTURAL.search(content) or MUST_KEEP.search(content):
             keep[i] = True
             continue
         if terms:

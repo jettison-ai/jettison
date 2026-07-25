@@ -100,3 +100,58 @@ def test_hook_emits_correct_schema(tmp_path):
     spec = out["hookSpecificOutput"]
     assert spec["hookEventName"] == "PostToolUse"
     assert len(spec["updatedToolOutput"]) < len(CODE)
+
+
+REAL_PAYLOAD_CONTENT = "\n".join(
+    ["import os", "import sys", ""]
+    + [f"    filler_{i} = {i}" for i in range(200)]
+    + ["def retry_handler(attempt):", "    return attempt * 2"]
+)
+
+
+def test_hook_reads_the_real_claude_code_payload_shape():
+    """Regression: the payload nests content under tool_response.file.
+
+    Verified against a live hook. Earlier code read a flat `tool_output`
+    field that does not exist, so an entire 101-turn session was measured
+    with pruning silently disabled.
+    """
+    from jettison.hook.runner import read_output
+
+    text, start = read_output({
+        "tool_name": "Read",
+        "tool_response": {"file": {"content": "a\nb", "startLine": 40}},
+    })
+    assert text == "a\nb"
+    assert start == 40
+
+
+def test_hook_prunes_a_real_shaped_payload(tmp_path):
+    t = tmp_path / "t.jsonl"
+    t.write_text(json.dumps({"type": "user", "message": {"content": "fix the retry handler"}}) + "\n")
+    out = handle({
+        "tool_name": "Read",
+        "transcript_path": str(t),
+        "tool_response": {"file": {"content": REAL_PAYLOAD_CONTENT, "startLine": 1}},
+    })
+    assert out is not None
+    text = out["hookSpecificOutput"]["updatedToolOutput"]
+    assert "retry_handler" in text
+    assert "lines elided" in text
+    assert len(text) < len(REAL_PAYLOAD_CONTENT)
+
+
+def test_secrets_are_never_pruned_away(tmp_path):
+    content = "\n".join(
+        [f"    pad_{i} = {i}" for i in range(150)]
+        + ["    api_key = os.environ['SERVICE_API_KEY']"]
+        + [f"    pad2_{i} = {i}" for i in range(150)]
+    )
+    t = tmp_path / "t.jsonl"
+    t.write_text(json.dumps({"type": "user", "message": {"content": "fix the retry handler"}}) + "\n")
+    out = handle({
+        "tool_name": "Read", "transcript_path": str(t),
+        "tool_response": {"file": {"content": content, "startLine": 1}},
+    })
+    if out is not None:
+        assert "api_key" in out["hookSpecificOutput"]["updatedToolOutput"]

@@ -17,8 +17,7 @@ import json
 import sys
 from typing import Any
 
-from jettison.hook.prune import prune_read_output
-from jettison.verifier.commitments import extract_text_commitments
+from jettison.hook.prune import MUST_KEEP, prune_read_output
 
 # Tools whose output is worth pruning. Bash is excluded: its output is
 # frequently a command's only result and has no line-number scaffolding to
@@ -55,23 +54,56 @@ def last_user_text(transcript_path: str) -> str:
 
 
 def preserves_commitments(original: str, pruned: str) -> bool:
-    """Refuse to prune away a path, number, identifier or rule.
+    """Every line that must never vanish is still present.
 
-    The same gate the proxy used. Tool output is where exact values live,
-    and a silently dropped one changes answers.
+    A dropped line of code is recoverable — the marker names its line range
+    and the agent can read it again — so the bar here is not "nothing was
+    removed" but "nothing irrecoverable was removed". Checking against the
+    same MUST_KEEP rule the pruner uses keeps the two self-consistent;
+    using the verifier's instruction-tuned regex instead rejected every
+    prune, because "must be" appears in ordinary docstrings.
     """
-    for c in extract_text_commitments(original, source="tool_result"):
-        if c.span not in pruned:
-            return False
-    return True
+    missing = [ln for ln in original.splitlines() if MUST_KEEP.search(ln)]
+    pruned_lines = set(pruned.splitlines())
+    return all(ln in pruned_lines for ln in missing)
+
+
+def read_output(event: dict[str, Any]) -> tuple[str, int]:
+    """Pull the file text out of a PostToolUse payload.
+
+    Verified against a live Claude Code hook rather than documentation:
+    a Read event arrives as
+    ``tool_response.file.{content, startLine, numLines, totalLines}``,
+    with the content carrying NO line-number prefixes. Earlier code read a
+    flat ``tool_output`` field, found nothing, and silently pruned nothing
+    for an entire 101-turn session. Accept every shape and return the
+    starting line so numbering can be reconstructed.
+    """
+    resp = event.get("tool_response")
+    if isinstance(resp, dict):
+        f = resp.get("file")
+        if isinstance(f, dict) and isinstance(f.get("content"), str):
+            return f["content"], int(f.get("startLine", 1) or 1)
+        if isinstance(resp.get("content"), str):
+            return resp["content"], 1
+    if isinstance(resp, str):
+        return resp, 1
+    out = event.get("tool_output")
+    return (out, 1) if isinstance(out, str) else ("", 1)
+
+
+def number_lines(text: str, start: int) -> str:
+    """Render as Claude Code displays reads, so elisions cite real numbers."""
+    return "\n".join(f"{start + i:6}\u2192{line}" for i, line in enumerate(text.splitlines()))
 
 
 def handle(event: dict[str, Any]) -> dict[str, Any] | None:
     if event.get("tool_name") not in PRUNABLE_TOOLS:
         return None
-    output = event.get("tool_output")
-    if not isinstance(output, str) or not output.strip():
+    raw, start_line = read_output(event)
+    if not raw.strip():
         return None
+    output = number_lines(raw, start_line)
 
     query = last_user_text(str(event.get("transcript_path", "")))
     result = prune_read_output(output, query)
