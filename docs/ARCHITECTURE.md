@@ -94,6 +94,19 @@ deterministic for JSON; ML only for prose).
     fabricated error `tool_result`s on its next request**;
   - `SessionState` keeps loaded capabilities sticky and grow-only per
     conversation (identified CCR-style: model + first user text hash).
+- `native_deferral.py` — the real §8.3 tool step-aside: provider-native
+  deferral entries (Anthropic's versioned `tool_search_tool_*` types,
+  tool-search function names, per-tool `defer_loading`), the small-tools +
+  very-large-system shape, or an explicit `x-jettison-native-deferral` header.
+  A hit leaves the tool list untouched, still compiles instructions, and
+  records the reason in the audit record.
+- `heartbeat.py` — OpenClaw cache-warming pings (~5–55 min) are full API
+  calls carrying the whole standing context. Detection is precision-first
+  (templated final message *plus* a machine-shaped turn, or an explicit
+  marker). The transform keeps `tools`, `system` and everything up to the
+  last cache breakpoint byte-identical — stripping the warmed prefix would
+  warm a *different* entry and pessimize dollars — and drops only the
+  uncached conversation tail. Enabled for the `openclaw` client.
 - `formats.py` — provider normalization (Anthropic `tool_use` blocks vs
   OpenAI `tool_calls`) and SSE re-synthesis.
 - `server.py` — FastAPI app: `POST /v1/messages`, `POST /v1/chat/completions`,
@@ -131,6 +144,16 @@ they would have billed at — standing context that was a stable cached prefix
 prices at cache-read (~10x cheaper than input), not input. `jettison savings`
 composes Jettison's standing-context ledger with Headroom's runtime-compression
 ledger when present.
+
+### `jettison.telemetry` — opt-in, closed vocabulary
+
+Off unless `JETTISON_TELEMETRY=1` *and* `JETTISON_TELEMETRY_ENDPOINT` are both
+set (no default endpoint). `PAYLOAD_FIELDS` is the entire set of keys that can
+leave the machine, `build_payload` is pure so the exact bytes are testable
+offline, and `maybe_send` fails closed on any undisclosed key, posts from a
+daemon thread with a short timeout and swallows every exception. `wrap` sends
+one aggregate per session — the ledger delta between start and shutdown — so no
+per-request path exists. Contract: docs/TELEMETRY.md.
 
 ### `jettison.adapters` — client integration
 

@@ -5,3 +5,7 @@ __pycache__/
 dist/
 build/
 .DS_Store
+site/
+parity-results.json
+dist/
+audit.json

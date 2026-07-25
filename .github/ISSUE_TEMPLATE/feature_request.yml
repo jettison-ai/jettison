@@ -1,0 +1,88 @@
+name: Feature request
+description: Propose a new capability, a new client adapter, or a change to how Jettison optimizes.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Jettison has a narrow remit: **cut tokens an agent doesn't need, without
+        changing answers, without busting the provider cache.** Proposals are
+        easiest to accept when they say where they sit against those three
+        constraints. See [docs/LIMITATIONS.md](../blob/main/docs/LIMITATIONS.md)
+        for things that are deliberately out of scope.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - scanner (discovering standing context)
+        - compiler (minifying schemas / instructions)
+        - capability registry + meta-tools
+        - interception proxy
+        - verifier (answer-quality safety net)
+        - savings ledger / pricing
+        - a new client adapter (jettison/adapters)
+        - CLI / UX
+        - docs
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you hitting?
+      description: |
+        Describe the situation, not the solution. Concrete numbers help a lot —
+        `jettison audit` output for the setup in question is ideal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: token-impact
+    attributes:
+      label: Expected token impact
+      description: |
+        Roughly how many tokens per turn does this save (or cost), for what kind
+        of setup? A guess is fine — say it's a guess. If it can be measured,
+        the parity harness (`jettison-parity`) is where the number should come
+        from before the feature ships.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraint check
+      description: Tick what you believe holds. Being unsure is fine — say so below.
+      options:
+        - label: "Cache-safe: it does not make the stable prefix vary between requests for identical inputs."
+        - label: "Deterministic: no clocks, no RNG, no discovery-order dependence in anything affecting request bytes."
+        - label: "Parity-safe: it cannot drop a fact the original context committed to (tool contracts, numbers, paths, hard rules, output formats)."
+        - label: "It does not require sending prompt or tool content off the user's machine."
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you be willing to implement it?
+      options:
+        - "Yes, with review guidance"
+        - "Maybe"
+        - "No, just reporting"
+    validations:
+      required: false

@@ -1,0 +1,43 @@
+site_name: Jettison
+site_description: Dump the context your agent never uses.
+site_url: https://jettison-ai.github.io/jettison/
+repo_url: https://github.com/jettison-ai/jettison
+repo_name: jettison-ai/jettison
+copyright: Apache-2.0 · built using components derived from Headroom
+
+# Deploy with: pip install -e ".[docs]" && mkdocs gh-deploy
+# Optional — the docs render fine on GitHub as plain Markdown without this.
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Architecture: ARCHITECTURE.md
+  - Cache safety: CACHE_SAFETY.md
+  - Limitations: LIMITATIONS.md
+  - Benchmarks: BENCHMARKS.md
+  - Decisions: DECISIONS.md
+  - Related work: RELATED_WORK.md
+  - Telemetry: TELEMETRY.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences
+  - toc:
+      permalink: true

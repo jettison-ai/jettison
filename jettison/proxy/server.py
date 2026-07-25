@@ -28,8 +28,9 @@ import httpx
 
 from jettison.compiler import build_bundle, compile_instructions, minify_tools
 from jettison.compiler.instructions_min import SkillSummary
-from jettison.proxy import formats
+from jettison.proxy import formats, heartbeat
 from jettison.proxy.interceptor import InterceptionLoop, SessionState
+from jettison.proxy.native_deferral import detects_native_deferral
 from jettison.proxy.rewrite import RewriteResult, rewrite_request, session_key
 from jettison.registry.prompt import render_capability_index
 from jettison.registry.store import CapabilityStore
@@ -52,6 +53,9 @@ class JettisonProxyConfig:
     optimize_tools: bool = True
     optimize_system: bool = True
     min_tools_to_optimize: int = 5
+    # OpenClaw-style cache-warming pings: keep the warmed prefix, drop the
+    # uncached conversation tail (see proxy/heartbeat.py).
+    heartbeat_profile: bool = False
     # skills discovered at wrap time; merged into every bundle
     skills: list[SkillSummary] = field(default_factory=list)
     request_timeout_s: float = 600.0
@@ -182,10 +186,13 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
             body["messages"] = messages
 
         # 2. Rewrite: tools -> registry, system -> compiled. Fail safe at
-        # every step.
+        # every step. A client that already defers tool schemas keeps the
+        # tool surface; instructions are a separate surface and still
+        # compile (§8.3 step-aside).
+        native_deferral, deferral_reason = detects_native_deferral(body, provider, request.headers)
         rewrite = RewriteResult(body=body, tokens_before=0, tokens_after=0)
         store: CapabilityStore | None = None
-        if config.optimize_tools and body.get("tools"):
+        if config.optimize_tools and body.get("tools") and not native_deferral:
             store, contract_ok = bundles.store_for(body["tools"], provider)
             if contract_ok:
                 rewrite = rewrite_request(
@@ -197,6 +204,12 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
                     min_tools_to_optimize=config.min_tools_to_optimize,
                 )
                 body = rewrite.body
+        elif native_deferral and config.optimize_system:
+            logger.debug("stepping aside for tools: %s", deferral_reason)
+            rewrite = rewrite_request(
+                body, provider, None, session, optimize_tools=False, optimize_system=True
+            )
+            body = rewrite.body
 
         # 3. Verify compiled system text; re-inflate on violation.
         reinflated = False
@@ -213,6 +226,27 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
                 reinflated = True
 
         optimized = rewrite.rewrote_tools or rewrite.rewrote_system
+
+        # 3b. Heartbeat profile: cache-warming pings keep the warmed
+        # prefix byte-identical and drop the uncached tail only.
+        is_heartbeat_turn = False
+        if config.heartbeat_profile and heartbeat.is_heartbeat(body, provider):
+            minimal = heartbeat.minimal_context_body(body)
+            if minimal is not body:
+                tail_before = heartbeat.message_tokens(body, model)
+                tail_after = heartbeat.message_tokens(minimal, model)
+                body = minimal
+                is_heartbeat_turn = True
+                # Dropped tail bytes sat *outside* the cached prefix, so
+                # they would have billed at the fresh input rate.
+                ledger.record_event(
+                    tokens_before=tail_before,
+                    tokens_after=tail_after,
+                    model=model,
+                    client=config.client_label,
+                    source="heartbeat",
+                    cache_tier="input",
+                )
 
         # 4. Stream downgrade when we own tools in the outbound list
         # (Headroom CCR pattern): resolve buffered, re-synthesize SSE.
@@ -297,6 +331,8 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
             mixed_turn=mixed,
             rewrote_tools=rewrite.rewrote_tools,
             rewrote_system=rewrite.rewrote_system,
+            native_deferral_reason=deferral_reason,
+            heartbeat=is_heartbeat_turn,
         ).write()
 
         if downgraded:

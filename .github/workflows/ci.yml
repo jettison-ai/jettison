@@ -1,0 +1,158 @@
+# CI for jettison-ai.
+#
+# Everything here runs fully offline apart from PyPI installs: the test
+# suite has no network calls (the proxy e2e test drives a scripted fake
+# provider), and `jettison audit` on the demo fixture only reads files —
+# there is no MCP config on a fresh runner, so no subprocess is launched.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every cell: a 3.10-only packaging break must not be masked
+      # by a fast-fail on 3.13.
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        # [runtime] is required for the test suite, not optional: tests/
+        # test_proxy_e2e.py imports httpx and builds the FastAPI app.
+        # [dev] brings pytest + pytest-asyncio (asyncio_mode = auto).
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[runtime,dev]"
+
+      - name: Show resolved environment
+        run: |
+          python -c "import sys; print(sys.version)"
+          python -m pip list
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      # ---- CLI sanity (no linter, no network) -------------------------------
+      # Proves the console script is wired up and that the headline command
+      # from the README actually works on a clean machine.
+
+      - name: jettison --version
+        run: jettison --version
+
+      - name: jettison audit --help
+        run: jettison audit --help
+
+      - name: jettison audit on the demo fixture emits valid JSON
+        run: |
+          set -o pipefail
+          jettison audit --project tests/fixtures/demo_project --json > audit.json
+          echo "audit exited 0"
+          python - <<'PY'
+          import json, pathlib, sys
+
+          report = json.loads(pathlib.Path("audit.json").read_text())
+
+          # Shape asserted against jettison/scanner ScanReport.to_json().
+          required = {
+              "client",
+              "project_dir",
+              "model",
+              "total_tokens",
+              "token_label",
+              "category_totals",
+              "items",
+          }
+          missing = required - set(report)
+          if missing:
+              sys.exit(f"audit JSON missing keys: {sorted(missing)}")
+
+          if not isinstance(report["total_tokens"], int):
+              sys.exit("total_tokens is not an integer")
+          if report["token_label"] not in {"measured", "estimated"}:
+              sys.exit(f"unlabelled token count: {report['token_label']!r}")
+
+          # Honest-measurement rule: every item carries measured|estimated.
+          for item in report["items"]:
+              if item.get("token_label") not in {"measured", "estimated"}:
+                  sys.exit(f"unlabelled item: {item.get('name')!r}")
+
+          # The demo fixture ships CLAUDE.md + AGENTS.md, so the scan must
+          # find standing context; an empty report means the scanner broke.
+          if report["total_tokens"] <= 0 or not report["items"]:
+              sys.exit("audit found no standing context in tests/fixtures/demo_project")
+
+          print(
+              f"ok: {len(report['items'])} items, "
+              f"{report['total_tokens']} tokens ({report['token_label']})"
+          )
+          PY
+
+      - name: Audit report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-py${{ matrix.python-version }}
+          path: audit.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  bare-install:
+    # README claims "the bare package is enough for `jettison audit`".
+    # This job is that claim's regression test: install with no extras, so
+    # headroom-ai / fastapi / httpx are absent, and audit must still work
+    # (token counting falls back to the chars/4 estimator, label=estimated).
+    name: bare install (no extras)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install without extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+
+      - name: Assert the runtime extras really are absent
+        run: |
+          python - <<'PY'
+          import importlib.util, sys
+
+          leaked = [m for m in ("headroom", "fastapi", "uvicorn") if importlib.util.find_spec(m)]
+          if leaked:
+              sys.exit(f"bare install pulled in runtime deps: {leaked}")
+          print("ok: bare install is bare")
+          PY
+
+      - name: Audit still works
+        run: |
+          jettison --version
+          jettison audit --project tests/fixtures/demo_project --json | python -c "import json,sys; d=json.load(sys.stdin); print('ok', d['total_tokens'], d['token_label'])"

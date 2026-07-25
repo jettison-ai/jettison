@@ -1,0 +1,155 @@
+name: Bug report
+description: Something in Jettison behaves incorrectly (wrong tokens, broken wrap, changed answers, crash).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing. Jettison sits between your agent and your provider, so
+        the two things that identify almost every bug are **which client** you run
+        and **what `jettison audit` sees**.
+
+        **Please do not paste secrets.** `jettison audit --json` contains file
+        paths, MCP server names and tool schemas from your machine — scrub
+        anything you would not put in a public repo. It never contains API keys,
+        prompts or message content, but your tool names might be private.
+
+        Security vulnerabilities do **not** go here — see
+        [SECURITY.md](../blob/main/SECURITY.md) and use a private advisory.
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      description: Which agent client is Jettison in front of?
+      options:
+        - claude (Claude Code)
+        - codex
+        - cursor
+        - cline
+        - opencode
+        - openclaw
+        - other / none (library or proxy used directly)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which command or surface?
+      options:
+        - jettison audit
+        - jettison wrap
+        - jettison unwrap
+        - jettison savings
+        - jettison share
+        - the interception proxy (running requests)
+        - the verifier (answer quality / fallbacks)
+        - install / packaging
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect instead?
+      placeholder: |
+        Expected: the capability index lists all 20 tools.
+        Actual: 3 tools are missing from the index and the model cannot load them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, in order.
+      render: shell
+      placeholder: |
+        1. jettison audit -c cursor
+        2. jettison wrap cursor
+        3. ask the agent to "read pyproject.toml"
+    validations:
+      required: true
+
+  - type: textarea
+    id: audit
+    attributes:
+      label: "`jettison audit` output"
+      description: |
+        Run it in the affected project and paste the output. If the bug is about
+        token counts or scanning, prefer `jettison audit --json`. Scrub private
+        paths and tool names first.
+      render: text
+      placeholder: |
+        $ jettison audit -c claude
+        Your agent carries ~41,300 tokens of standing context into every turn ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: bypass
+    attributes:
+      label: "Does it still reproduce with `x-jettison-bypass: true`?"
+      description: |
+        Sending the header `x-jettison-bypass: true` forwards the request
+        untouched, with no rewriting, no registry and no verifier. If the bug
+        survives that, Jettison is very likely not the cause — but knowing
+        either way saves a full round of triage.
+      options:
+        - "No — bypass fixes it (Jettison is involved)"
+        - "Yes — it reproduces with bypass too (probably not Jettison)"
+        - "Not applicable (bug is in audit/savings/share, no proxy involved)"
+        - "Haven't tried"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: "`python --version`. Jettison supports 3.10+ and is developed on 3.13."
+      placeholder: "3.13.13"
+    validations:
+      required: true
+
+  - type: input
+    id: jettison-version
+    attributes:
+      label: Jettison version
+      description: "`jettison --version`, or the commit SHA if installed from source."
+      placeholder: "jettison, version 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 15.5 / Ubuntu 24.04 / Windows 11 + WSL2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is it installed?
+      options:
+        - "pip install jettison-ai"
+        - "editable from source (pip install -e .)"
+        - "with the [runtime] / [all] extras"
+        - "bare package, no extras"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Traceback or relevant log lines
+      description: |
+        Full traceback if it crashed. If the verifier is involved, the matching
+        line from `~/.jettison/audit/records.jsonl` is the single most useful
+        thing you can attach.
+      render: text
+    validations:
+      required: false

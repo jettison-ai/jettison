@@ -41,6 +41,11 @@ class AuditRecord:
     rewrote_tools: bool = False
     rewrote_system: bool = False
     violation_kinds: list[str] = field(default_factory=list)
+    # Why the tool surface was left to the client (native deferred
+    # loading); "" means we owned it. New fields default so records
+    # written by older versions still parse.
+    native_deferral_reason: str = ""
+    heartbeat: bool = False
     ts: float = 0.0
 
     def write(self) -> None:

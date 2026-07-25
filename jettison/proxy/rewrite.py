@@ -78,13 +78,19 @@ def _system_as_text(system: Any) -> str:
 def rewrite_request(
     body: dict[str, Any],
     provider: str,
-    store: CapabilityStore,
+    store: CapabilityStore | None,
     session: SessionState,
     *,
+    optimize_tools: bool = True,
     optimize_system: bool = True,
     min_tools_to_optimize: int = 5,
 ) -> RewriteResult:
-    """Rewrite a request body in place-safe copy. Returns before/after."""
+    """Rewrite a request body in place-safe copy. Returns before/after.
+
+    `optimize_tools=False` (no store needed) is the native-deferral
+    step-aside: the client already defers schemas, so the tool surface is
+    left alone while instructions still compile.
+    """
     model = str(body.get("model", ""))
     new_body = dict(body)
 
@@ -94,11 +100,11 @@ def rewrite_request(
 
     # ---- tools ----
     tools = body.get("tools") or []
-    client_tool_names = {_tool_name(t, provider) for t in tools}
     # Step-aside rule (§8.3): tiny tool lists aren't worth a registry
-    # indirection, and a client that already ships deferred loading will
-    # present few/no tools here.
-    if len(tools) >= min_tools_to_optimize:
+    # indirection; clients that already defer schemas are caught earlier
+    # by native_deferral.detects_native_deferral and arrive here with
+    # optimize_tools=False.
+    if optimize_tools and store is not None and len(tools) >= min_tools_to_optimize:
         result.original_tools = tools
         tokens_before += _tool_list_tokens(tools, model)
 

@@ -16,7 +16,9 @@ from pathlib import Path
 
 import click
 
+from jettison import telemetry
 from jettison.adapters.clients import ADAPTERS
+from jettison.savings import ledger
 
 HEADROOM_PORT = 8787
 DEFAULT_ANTHROPIC = "https://api.anthropic.com"
@@ -53,6 +55,32 @@ def _discover_skills(client: str, project_dir: Path):
         for f in discoverer(project_dir)
         if f.kind == "skill"
     ]
+
+
+def send_session_telemetry(client: str, baseline: ledger.Aggregate) -> None:
+    """One aggregate report per wrap session, opt-in only (docs/TELEMETRY.md).
+
+    The whole report is the ledger delta between wrap start and shutdown:
+    there is no per-request telemetry path, so nothing about individual
+    requests exists to leak. The join is bounded because a daemon thread
+    would otherwise be killed by interpreter exit before it sends.
+    """
+    if not telemetry.is_enabled():
+        return
+    after = ledger.aggregate()
+    tokens = after.tokens_saved - baseline.tokens_saved
+    if tokens <= 0:
+        return
+    thread = telemetry.maybe_send(
+        telemetry.build_payload(
+            install=telemetry.install_id(),
+            client=client,
+            tokens_avoided=tokens,
+            dollars_avoided=after.cost_usd - baseline.cost_usd,
+        )
+    )
+    if thread is not None:
+        thread.join(timeout=telemetry.SEND_TIMEOUT_S)
 
 
 def run_wrap(
@@ -92,7 +120,14 @@ def run_wrap(
         optimize_system=(profile != "max-quality"),
         min_tools_to_optimize=3 if profile == "max-savings" else 5,
         skills=_discover_skills(client, Path.cwd()),
+        # Only OpenClaw is known to send cache-warming heartbeats; other
+        # clients would only inherit the misfire risk.
+        heartbeat_profile=(client == "openclaw"),
     )
+
+    if telemetry.is_enabled():
+        click.echo(telemetry.disclosure_notice())
+    telemetry_baseline = ledger.aggregate()
 
     import uvicorn
 
@@ -123,6 +158,7 @@ def run_wrap(
         server.should_exit = True
         if headroom_proc is not None:
             headroom_proc.terminate()
+        send_session_telemetry(client, telemetry_baseline)
 
 
 def run_unwrap(client: str) -> None:

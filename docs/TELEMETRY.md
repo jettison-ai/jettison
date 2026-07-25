@@ -2,13 +2,18 @@
 
 **Off by default. Opt-in only. Disclosed here in full.**
 
-> Status: telemetry is *planned* and not yet implemented in code. This page is
-> the contract it will be built against; nothing is transmitted today.
+> Status: implemented in `jettison/telemetry/`, against this page as the
+> contract. It stays inert unless you set **both** `JETTISON_TELEMETRY=1` and
+> `JETTISON_TELEMETRY_ENDPOINT=<url>` — there is no default endpoint, so
+> flipping the flag alone still transmits nothing. When it is on, `jettison
+> wrap` prints the disclosure notice and sends **one aggregate report per
+> session**, at shutdown, on a background thread.
 
 ## What would be collected (with `JETTISON_TELEMETRY=1`)
 
 - an anonymous install counter (random UUID, no linkage to any identity)
-- aggregate tokens avoided and estimated dollars avoided (totals only)
+- aggregate tokens avoided and estimated dollars avoided (totals only, with
+  the `measured`/`estimated` label of the price table they came from)
 - client type (e.g. "claude", "openclaw") and Jettison version
 
 ## What is never collected

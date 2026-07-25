@@ -11,6 +11,14 @@ anything else.
   Claude Code and Codex are shipping native tool search; where the client
   already defers schemas, Jettison steps aside for that surface (and keeps
   `ENABLE_TOOL_SEARCH=true` alive for Claude Code behind a custom base URL).
+  Detection is real, not just the min-tools floor: `proxy/native_deferral.py`
+  inspects each request for provider-native deferral entries (Anthropic's
+  versioned `tool_search_tool_*` server tool types, tool-search function
+  names, per-tool `defer_loading` flags), for the small-tools-plus-very-large-
+  system shape a deferring client produces, and for an explicit
+  `x-jettison-native-deferral` header. On a hit the tool list passes through
+  untouched, instruction compilation still runs, and the reason is written to
+  the audit record (`native_deferral_reason`).
   Headline savings target MCP-heavy setups on clients *without* native
   deferral — Cline, Cursor, OpenCode, OpenClaw, plain SDK apps.
 - **Savings look thin on tool-light, instruction-light setups.** If your agent

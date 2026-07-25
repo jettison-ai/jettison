@@ -1,0 +1,157 @@
+# Release: build sdist + wheel on a v* tag and publish to PyPI.
+#
+# ---------------------------------------------------------------------
+# ONE-TIME SETUP — this workflow cannot succeed until both are done.
+#
+# 1. Claim the PyPI project name `jettison-ai` (https://pypi.org/manage/projects/).
+#    Until the first release exists, use PyPI's "pending publisher" form so
+#    the very first upload is also OIDC-authenticated.
+#
+# 2. Configure a Trusted Publisher on that project:
+#       Owner:            jettison-ai
+#       Repository:       jettison
+#       Workflow name:    release.yml      <- this file's name, exactly
+#       Environment name: pypi             <- must match `environment:` below
+#    https://docs.pypi.org/trusted-publishers/
+#
+# 3. Create a GitHub Environment named `pypi` (Settings -> Environments).
+#    Adding required reviewers there gives you a manual approval gate
+#    between "tag pushed" and "bytes on PyPI".
+#
+# There are NO API tokens and NO secrets in this workflow — publication is
+# authenticated with a short-lived OIDC token minted by GitHub, which is
+# why the `publish` job needs `id-token: write`.
+# ---------------------------------------------------------------------
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to PyPI (otherwise build + verify only)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Gate: the same matrix CI runs, but pinned to the tagged commit. A tag
+  # that does not pass tests never reaches the build job.
+  test:
+    name: test py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[runtime,dev]"
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: CLI sanity
+        run: |
+          jettison --version
+          jettison audit --help
+          jettison audit --project tests/fixtures/demo_project --json | python -c "import json,sys; json.load(sys.stdin); print('audit json ok')"
+
+  build:
+    name: build sdist + wheel
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Tag matches jettison._version.__version__
+        if: startsWith(github.ref, 'refs/tags/v')
+        # A mismatched tag produces an unfixable PyPI release (versions are
+        # immutable), so check before building rather than after uploading.
+        run: |
+          python - <<'PY'
+          import os, pathlib, re, sys
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          src = pathlib.Path("jettison/_version.py").read_text()
+          m = re.search(r'__version__\s*=\s*"([^"]+)"', src)
+          if not m:
+              sys.exit("could not parse __version__ from jettison/_version.py")
+          version = m.group(1)
+          if tag != f"v{version}":
+              sys.exit(f"tag {tag} does not match jettison.__version__ {version} (expected v{version})")
+          print(f"ok: {tag} == v{version}")
+          PY
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          ls -l dist/
+
+      - name: Check metadata
+        run: python -m twine check --strict dist/*
+
+      - name: Smoke-install the built wheel
+        # Installs the artifact that is about to be published (not the source
+        # tree) and runs the headline command against it.
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/python -m pip install --upgrade pip
+          /tmp/smoke/bin/python -m pip install dist/*.whl
+          /tmp/smoke/bin/jettison --version
+          /tmp/smoke/bin/jettison audit --project tests/fixtures/demo_project --json \
+            | python -c "import json,sys; d=json.load(sys.stdin); print('wheel ok:', d['total_tokens'], d['token_label'])"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/jettison-ai
+    permissions:
+      # Mints the OIDC token that PyPI trusted publishing verifies.
+      # No PYPI_API_TOKEN secret is used or needed.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Fail loudly if a tag is re-pushed rather than silently no-op.
+          skip-existing: false
+          print-hash: true

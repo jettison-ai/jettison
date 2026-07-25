@@ -3,7 +3,7 @@
     "demo-tools": {
       "command": "python3",
       "args": [
-        "/repo/tests/fixtures/fake_mcp_server.py"
+        "tests/fixtures/fake_mcp_server.py"
       ],
       "env": {
         "JETTISON_FAKE_TOOLS": "12"
@@ -12,7 +12,7 @@
     "search-service": {
       "command": "python3",
       "args": [
-        "/repo/tests/fixtures/fake_mcp_server.py"
+        "tests/fixtures/fake_mcp_server.py"
       ],
       "env": {
         "JETTISON_FAKE_TOOLS": "8"

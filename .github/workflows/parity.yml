@@ -1,0 +1,215 @@
+# Benchmark regression gate.
+#
+# Jettison's core claim is "tokens saved WITH task parity". This workflow
+# is the enforcement of the second half: it runs the jettison-parity
+# harness against this checkout and fails when the task-parity family
+# reports a regression (completion drop, wrong tool, lost required param,
+# lost critical fact, or a lost verifier commitment).
+#
+# ---------------------------------------------------------------------
+# PREREQUISITE — read before wondering why this is grey.
+#
+# This workflow checks out a SECOND repository, `jettison-ai/jettison-parity`
+# (see PARITY_REPO below). That repository must exist and be readable by
+# this workflow's GITHUB_TOKEN before the job can do anything:
+#
+#   * public jettison-parity  -> works with the default GITHUB_TOKEN;
+#   * private jettison-parity -> add a PAT/App token with `contents: read`
+#     on it as the secret PARITY_TOKEN and set `token:` on the checkout
+#     step below.
+#
+# Until then the checkout step is expected to fail. It is marked
+# `continue-on-error` and every later step is gated on its outcome, and
+# the whole job is `continue-on-error: true`, so a not-yet-published
+# harness repo leaves this repo green rather than red on day one.
+#
+# WHEN jettison-parity IS PUBLISHED: delete `continue-on-error: true` from
+# the job (line marked TODO) so regressions actually block merges, and add
+# `parity` to the required status checks in branch protection.
+# ---------------------------------------------------------------------
+
+name: parity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      parity_ref:
+        description: "Ref of jettison-ai/jettison-parity to benchmark against"
+        required: false
+        default: main
+      config:
+        description: "Fixture config directory inside jettison-parity"
+        required: false
+        default: configs/mcp-heavy
+
+concurrency:
+  group: parity-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The harness lives in its own repo so third parties can rerun our
+  # numbers without cloning the optimizer. Change here if it moves.
+  PARITY_REPO: jettison-ai/jettison-parity
+  PARITY_REF: ${{ github.event.inputs.parity_ref || 'main' }}
+  PARITY_CONFIG: ${{ github.event.inputs.config || 'configs/mcp-heavy' }}
+
+jobs:
+  benchmark:
+    name: task-parity gate
+    runs-on: ubuntu-latest
+    # TODO(remove once jettison-ai/jettison-parity is published): keeps the
+    # repo from going red before the harness repo exists.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout jettison (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: jettison
+
+      - name: Checkout the parity harness
+        id: harness
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PARITY_REPO }}
+          ref: ${{ env.PARITY_REF }}
+          path: jettison-parity
+          # For a private harness repo, uncomment and configure the secret:
+          # token: ${{ secrets.PARITY_TOKEN }}
+
+      - name: Harness unavailable
+        if: steps.harness.outcome != 'success'
+        run: |
+          echo "::notice title=parity harness not available::${PARITY_REPO}@${PARITY_REF} could not be checked out; skipping the benchmark gate."
+          {
+            echo "### Parity gate skipped"
+            echo ""
+            echo "\`${PARITY_REPO}\` could not be checked out (repo missing or token lacks access)."
+            echo "See the header of \`.github/workflows/parity.yml\` for the one-time setup."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # jettison-parity declares requires-python >= 3.11; the harness is the
+      # reference environment, so pin one version rather than matrixing.
+      - name: Set up Python
+        if: steps.harness.outcome == 'success'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            jettison/pyproject.toml
+            jettison-parity/pyproject.toml
+
+      - name: Install both packages (editable, sibling checkouts)
+        if: steps.harness.outcome == 'success'
+        # The harness imports `jettison` directly (parity.fixtures,
+        # parity.middleware, parity.benchmarks.task_parity all do), so the
+        # jettison install must come from THIS checkout — that is the whole
+        # point of the gate: benchmark the PR, not the last release.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "./jettison[runtime]"
+          python -m pip install -e ./jettison-parity
+          python -c "import jettison, parity, pathlib; print('jettison from', pathlib.Path(jettison.__file__).parent)"
+
+      - name: Run the parity harness
+        id: run
+        if: steps.harness.outcome == 'success'
+        working-directory: jettison-parity
+        # Exit-code semantics of `parity run` (parity/cli.py):
+        #   0 -> all families ran, no task-parity regressions
+        #   2 -> task-parity regressions detected (sys.exit(2))
+        # Click also uses 1/2 for usage and runtime errors, so the exit code
+        # alone is ambiguous. We capture it, then decide from the JSON in the
+        # gate step below — the results file is written before sys.exit().
+        run: |
+          set +e
+          parity run --family all --config "${PARITY_CONFIG}" --json --out parity-results.json
+          code=$?
+          set -e
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+          echo "parity run exited ${code}"
+
+      - name: Upload parity results
+        if: always() && steps.harness.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-results
+          path: jettison-parity/parity-results.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Gate on task-parity regressions
+        if: steps.harness.outcome == 'success'
+        working-directory: jettison-parity
+        env:
+          PARITY_EXIT: ${{ steps.run.outputs.exit_code }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, sys
+
+          exit_code = int(os.environ.get("PARITY_EXIT", "1"))
+          results = pathlib.Path("parity-results.json")
+
+          if not results.exists():
+              sys.exit(
+                  f"parity run produced no results file (exit {exit_code}); "
+                  "this is a harness failure, not a benchmark result."
+              )
+
+          data = json.loads(results.read_text())
+          parity = data.get("task_parity")
+          if parity is None:
+              sys.exit("results JSON has no task_parity family")
+
+          regressions = parity.get("regressions") or []
+          base = parity["total_request_tokens_baseline"]
+          opt = parity["total_request_tokens_optimized"]
+          saved = base - opt
+          pct = (100.0 * saved / base) if base else 0.0
+
+          summary = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a")
+          print("### Task parity", file=summary)
+          print("", file=summary)
+          print(f"config `{parity['config']}` · middleware `{parity['middleware']}` · model `{parity['model']}`", file=summary)
+          print("", file=summary)
+          print("| task | completed b/o | correct tool b/o | req tokens b/o | regressions |", file=summary)
+          print("|---|---|---|---|---|", file=summary)
+          for t in parity["tasks"]:
+              b, o = t["baseline"], t["optimized"]
+              yn = lambda v: "yes" if v else "**NO**"
+              print(
+                  f"| {t['task_id']} | {yn(b['completed'])}/{yn(o['completed'])} "
+                  f"| {yn(b['correct_tool'])}/{yn(o['correct_tool'])} "
+                  f"| {b['request_tokens']:,} / {o['request_tokens']:,} "
+                  f"| {'; '.join(t['regressions']) or '-'} |",
+                  file=summary,
+              )
+          print("", file=summary)
+          print(
+              f"Total request tokens: baseline {base:,} vs optimized {opt:,} "
+              f"(saved {saved:,}, {pct:.1f}%) — `{parity['request_tokens_label']}`.",
+              file=summary,
+          )
+          summary.close()
+
+          if regressions:
+              for r in regressions:
+                  print(f"::error title=task-parity regression::{r}")
+              sys.exit(f"{len(regressions)} task-parity regression(s); refusing to merge.")
+
+          if exit_code != 0:
+              sys.exit(
+                  f"parity run exited {exit_code} with no recorded regressions — "
+                  "treat as a harness error."
+              )
+
+          print(f"no task-parity regressions; {saved:,} request tokens saved ({pct:.1f}%)")
+          PY
