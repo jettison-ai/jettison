@@ -68,23 +68,38 @@ def compress_description(desc: str, max_sentences: int = 2, max_chars: int = 280
     return text
 
 
-def _strip_annotations(node: Any, *, keep_description: bool) -> Any:
+# Keys whose *values* are maps of caller-chosen names to schemas. Inside
+# them every key is a parameter name, so the annotation drop-list must not
+# apply — a tool with a parameter named `description` or `title` would
+# otherwise lose it and every call to that tool would be malformed.
+_NAME_MAP_KEYS = frozenset({"properties", "$defs", "definitions", "patternProperties"})
+
+
+def _strip_annotations(node: Any, *, keep_description: bool, is_name_map: bool = False) -> Any:
     if isinstance(node, dict):
         out = {}
         for k, v in node.items():
-            if k in DROP_KEYS:
-                continue
-            if k == "description":
-                if not keep_description or not isinstance(v, str):
+            if not is_name_map:
+                if k in DROP_KEYS:
                     continue
-                compressed = compress_description(v, max_sentences=1, max_chars=140)
-                if compressed:
-                    out[k] = compressed
-                continue
-            out[k] = _strip_annotations(v, keep_description=keep_description)
+                if k == "description":
+                    if not keep_description or not isinstance(v, str):
+                        continue
+                    compressed = compress_description(v, max_sentences=1, max_chars=140)
+                    if compressed:
+                        out[k] = compressed
+                    continue
+            out[k] = _strip_annotations(
+                v,
+                keep_description=keep_description,
+                is_name_map=(not is_name_map) and k in _NAME_MAP_KEYS,
+            )
         return out
     if isinstance(node, list):
-        return [_strip_annotations(v, keep_description=keep_description) for v in node]
+        return [
+            _strip_annotations(v, keep_description=keep_description, is_name_map=False)
+            for v in node
+        ]
     return node
 
 

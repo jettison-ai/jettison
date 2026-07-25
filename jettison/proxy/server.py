@@ -115,9 +115,14 @@ class BundleCache:
             normalized, set(store.capability_names), bundle.schema_store, provider
         )
         if not check.ok:
+            # Name the offending tools and reasons. A silent "optimization
+            # disabled" is unactionable: it means the user gets no savings
+            # and no way to find out why.
             logger.warning(
-                "tool registry failed verification (%d violations); optimization disabled for this tool list",
+                "tool registry failed verification (%d violations); optimization disabled "
+                "for this tool list. First failures: %s",
                 len(check.violations),
+                "; ".join(f"{v.commitment.key}: {v.reason}" for v in check.violations[:3]),
             )
 
         if len(self._stores) >= self._max:

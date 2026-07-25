@@ -95,3 +95,47 @@ def test_bundle_hash_stable():
     b2 = build_bundle(minify_tools(tools), ci, skills, idx)
     assert b1.content_hash == b2.content_hash
     assert b1.stable_prefix_text() == b2.stable_prefix_text()
+
+
+def test_parameter_named_description_survives():
+    """Regression: a parameter *named* `description` is not an annotation.
+
+    Found against real Claude Code traffic — its Agent, Bash and Monitor
+    tools all take a `description` parameter, and stripping it made every
+    call to them malformed. The registry verifier caught it; this test
+    stops it coming back.
+    """
+    tools = [{
+        "name": "spawn_agent",
+        "description": "Launch an agent.",
+        "input_schema": {
+            "type": "object",
+            "title": "SpawnAgent",
+            "properties": {
+                "description": {"type": "string", "description": "Short task label."},
+                "title": {"type": "string"},
+                "prompt": {"type": "string"},
+            },
+            "required": ["description", "prompt"],
+        },
+    }]
+    r = minify_tools(tools)
+    props = r.tools[0].input_schema["properties"]
+    assert set(props) == {"description", "title", "prompt"}
+    assert r.tools[0].input_schema["required"] == ["description", "prompt"]
+    assert "title" not in {k for k in r.tools[0].input_schema if k != "properties"}
+
+
+def test_real_claude_code_tools_pass_registry_verification():
+    """The whole tool list Claude Code actually sends must verify."""
+    import json as _json
+    from pathlib import Path
+
+    from jettison.verifier import verify_tool_registry
+
+    fixture = Path(__file__).parent / "fixtures" / "claude_code_tools.json"
+    tools = _json.loads(fixture.read_text())
+    r = minify_tools(tools)
+    store = {t.name: t.to_json() for t in r.tools}
+    v = verify_tool_registry(tools, set(store), store, "anthropic")
+    assert v.ok, [x.reason for x in v.violations[:3]]
