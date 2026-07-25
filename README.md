@@ -123,10 +123,15 @@ CLAUDE.md + AGENTS.md with overlap), model `claude-sonnet-4-5`, token counts
 | Project instructions | 930 | 661 | −28.9% |
 | **Total** | **9,400** | **1,667** | **−82.3%** |
 
-On `configs/openclaw-like` (70 skills, ~14.5K-token system prompt): total
-32,229 → 18,728 (**−41.9%**); tools −94.6%, skills −71.6%, instructions
-**0.0%** — that last one is the honest result, not a bug: v1 only dedupes and
-normalizes prose, and that prompt has no duplicated paragraphs to drop.
+On `configs/openclaw-like` (70 skills, ~16.5K-token system prompt): total
+28,128 → 18,702 (**−33.5%**). Almost all of it is tools (−94.6%). Two
+categories move by **0.0%**, and both are honest results rather than bugs:
+the system prompt has no duplicated paragraphs for v1 to drop, and the
+skills were already costing only their one-line index entries — Claude Code
+and OpenClaw load skill *metadata* and fetch `SKILL.md` on demand, so there
+is no skill body in standing context for us to remove. Earlier drafts of
+this table counted full skill bodies and reported −41.9%; that baseline was
+wrong and the number is corrected here.
 
 **Task parity** — 6 scenarios (tool selection among many, search→load→call,
 numeric constraint, security rule, output format, mixed turn):
