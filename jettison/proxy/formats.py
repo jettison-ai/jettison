@@ -139,8 +139,24 @@ def anthropic_response_to_sse(response: dict[str, Any]) -> list[bytes]:
                 )
             )
         elif btype == "thinking":
+            # A thinking block carries a `signature` the API verifies when the
+            # client replays the turn. Emitting the text without it produces a
+            # 400 ("each thinking block must contain thinking") on the *next*
+            # request, not this one — which is why only live traffic surfaces
+            # it. Re-emit both deltas, signature last, as the API does.
             events.append(ev("content_block_start", {"type": "content_block_start", "index": i, "content_block": {"type": "thinking", "thinking": ""}}))
             events.append(ev("content_block_delta", {"type": "content_block_delta", "index": i, "delta": {"type": "thinking_delta", "thinking": block.get("thinking", "")}}))
+            if block.get("signature"):
+                events.append(
+                    ev(
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": i,
+                            "delta": {"type": "signature_delta", "signature": block["signature"]},
+                        },
+                    )
+                )
         else:
             events.append(ev("content_block_start", {"type": "content_block_start", "index": i, "content_block": block}))
         events.append(ev("content_block_stop", {"type": "content_block_stop", "index": i}))

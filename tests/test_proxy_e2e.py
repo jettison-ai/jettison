@@ -176,3 +176,48 @@ async def test_small_tool_lists_left_alone(env_workspace):
     resp = await client.post("/v1/messages", json=body)
     assert resp.status_code == 200
     assert [t["name"] for t in fake.requests[0]["tools"]] == [f"catalog_tool_{i}" for i in range(3)]
+
+
+def test_thinking_block_sse_roundtrip_preserves_signature():
+    """Regression: a thinking block replayed without its signature 400s.
+
+    Found against live Claude Code traffic. The failure surfaces on the
+    NEXT request, when the client sends the reconstructed turn back, so no
+    fake-provider test caught it.
+    """
+    from jettison.proxy.formats import anthropic_response_to_sse
+
+    resp = {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "step one, then two", "signature": "SIGabc123"},
+            {"type": "text", "text": "done"},
+        ],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+    }
+    wire = b"".join(anthropic_response_to_sse(resp)).decode()
+    assert "thinking_delta" in wire
+    assert "step one, then two" in wire
+    assert "signature_delta" in wire
+    assert "SIGabc123" in wire
+    # signature must follow the thinking text, as the API emits it
+    assert wire.index("SIGabc123") > wire.index("step one, then two")
+
+
+def test_thinking_block_without_signature_emits_no_empty_delta():
+    from jettison.proxy.formats import anthropic_response_to_sse
+
+    resp = {
+        "id": "m",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "thinking", "thinking": "no sig here"}],
+        "stop_reason": "end_turn",
+        "usage": {},
+    }
+    wire = b"".join(anthropic_response_to_sse(resp)).decode()
+    assert "thinking_delta" in wire
+    assert "signature_delta" not in wire
