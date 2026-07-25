@@ -371,3 +371,90 @@ trusting a measurement.
 anyone anything, and its findings are genuinely counter-intuitive
 (skills cost ~20 tokens each, not their file size; tool-call arguments
 are 48.6% of resident cost).
+
+---
+
+# Part 3 — Client-side works (the first positive result)
+
+Same method as Part 2 — real Claude Code, real repo (`pallets/click`),
+identical tasks, alternating arm order, measured from Claude Code's own
+`--output-format json` telemetry. The only change is **where** the
+optimization lives: inside the client instead of in front of it.
+
+## 17. Six paired coding tasks
+
+| Task | Type | Cost saved | Input tokens saved |
+|---|---|---:|---:|
+| 0 | exploration | **+27.7%** | 73.6% |
+| 2 | exploration | **+23.8%** | 79.1% |
+| 3 | exploration | **+20.9%** | 40.4% |
+| 5 | exploration | −1.3% | 72.5% |
+| 4 | pure write | −2.0% | −1.3% |
+| 1 | pure write | −6.3% | −12.4% |
+| **TOTAL** | | **+15.1%** | **52.5%** |
+
+$2.2270 → $1.8905 on identical work. Mean 10.5%, sd 15.2,
+95% CI [−1.7%, 22.7%], n=6.
+
+| Aggregate | direct | jettison | |
+|---|---:|---:|---:|
+| cache_read | 3,292,362 | 1,569,503 | **−52%** |
+| cache_write | 138,835 | 59,367 | **−57%** |
+| output tokens | 27,052 | 13,957 | **−48%** |
+| turns | 82 | 39 | **−52%** |
+| wall clock | 368s | 194s | **−47%** |
+
+**Cache-write went down 57%.** In Part 2 it rose every time and that is
+what destroyed the proxy. Reversing its direction is the single clearest
+evidence that client-side delivery is the correct architecture.
+
+## 18. The mechanism, verified
+
+Task 0, tool calls actually made:
+
+| | calls |
+|---|---|
+| plain Claude Code | 5 Bash + 5 Read + 1 Write = **11** |
+| with Jettison | **1 scout** + 2 Read + 1 Write = **4** |
+
+The expensive model delegated exploration once instead of making ten
+exploratory calls itself. This is the RepoMaster pattern reproduced on
+Claude Code.
+
+## 19. Where it helps and where it does not
+
+Exploration-heavy tasks: +20.9% to +27.7%. Pure authoring: −2.0% to
+−6.3%, because delegation has a floor cost and there is nothing to
+explore. The sign was predicted by the mechanism in 5 of 6 tasks.
+
+Scout guidance now tells the model to skip delegation on pure-authoring
+work.
+
+## 20. Subagent spend is counted — and it matters
+
+Claude Code's `total_cost_usd` **includes the subagent's tokens**, so
+scout's Haiku spend counts against us. That is why task 5 shows 72.5%
+fewer input tokens but −1.3% cost: work moved from Sonnet to Haiku rather
+than disappearing.
+
+**Scout efficiency therefore converts directly into dollars.** A verbose
+scout eats its own saving. This is the highest-leverage tuning target.
+
+## 21. Honest limits
+
+- n=6, and the CI touches zero. Directionally strong, not yet formally
+  significant. More pairs is cheap now that the harness works.
+- Tasks ran 4–12 turns. Real sessions run 50–125 turns with a median
+  185,641 tokens resident (§3), so short tasks **under-represent** an
+  optimizer whose whole mechanism is compounding. A sustained
+  single-feature run is the better test.
+- Claude Code only. Codex and Cursor are unmeasured.
+
+## What can be claimed today
+
+> ~15% cheaper and ~50% faster on real coding work; around 25% on
+> exploration-heavy tasks and roughly break-even on pure authoring;
+> 52% fewer input tokens overall.
+
+Never a flat percentage without the task-type split: a write-heavy user
+who is promised 15% will measure zero and say so publicly.
