@@ -39,6 +39,7 @@ all = ["jettison-ai[runtime]"]
 [project.scripts]
 jettison = "jettison.cli:main"
 jet = "jettison.cli:main"
+jettison-hook = "jettison.hook.runner:main"
 
 [project.urls]
 Homepage = "https://github.com/jettison-ai/jettison"

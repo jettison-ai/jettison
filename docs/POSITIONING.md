@@ -6,7 +6,8 @@ Jettison composes rather than competes with them.
 | | Headroom | Caveman | SWE-Pruner | **Jettison** |
 |---|---|---|---|---|
 | License | Apache-2.0 | MIT | MIT | Apache-2.0 |
-| Delivery | proxy | output style | tool replacement | **client-side** |
+| Delivery | proxy | hooks | tool replacement | **hooks + subagent** |
+| **Cheap-model repo navigation** | — | — | — | ✅ **only** |
 | Compress tool outputs | ✅ | — | ✅ | ✅ *(both)* |
 | Query-aware pruning | — | — | ✅ | ✅ *(SWE-Pruner)* |
 | Reduce agent verbosity | partial | ✅ | — | ✅ *(Caveman)* |
@@ -32,22 +33,29 @@ the right combination, and prove the result on their own bill.
 
 ## What we contribute that is genuinely new
 
-1. **Tool-call argument optimization.** Measured at **48.6% of resident
-   context cost** — the single largest category, and untouched by any
-   prior work, because when an agent writes a file the full text stays in
-   the conversation forever (`docs/FINDINGS.md` §2).
-2. **Per-request commitment verification.** Nothing is removed if it
+1. **Cheap-model repository navigation** (`jettison optimize` installs a
+   scout subagent). The Elicit review of 80 papers names repository-context
+   selection *the dominant cost driver* — agents read whole files with the
+   same expensive model that solves the task. Dedicated navigation fixes it
+   decisively: RepoMaster 95% token reduction with pass rate 40.7% → 62.9%,
+   FastContext 60% at +5.5pp. No shipping tool packages this for Claude
+   Code.
+2. **Tool-call argument optimization.** Measured at **48.6% of resident
+   context cost** — the single largest category, untouched by any prior
+   work, because when an agent writes a file the full text stays in the
+   conversation forever (`docs/FINDINGS.md` §2).
+3. **Per-request commitment verification.** Nothing is removed if it
    would drop a path, number, identifier, security rule or output-format
    requirement. No other tool offers a preservation guarantee.
-3. **`jettison audit`.** Read-only, pre-install, tells a developer where
+4. **`jettison audit`.** Read-only, pre-install, tells a developer where
    their tokens actually go. Most people are wrong about this: skills cost
    ~20 tokens each rather than their file size, and arguments outweigh
    outputs.
-4. **Bill-level measurement.** Published savings are share-of-bill from a
+5. **Bill-level measurement.** Published savings are share-of-bill from a
    live A/B, never share-of-payload. This is why our numbers are smaller
    than everyone's marketing and match independent replication
    (headroom 2.8%, rtk 0.5%, caveman 0.4% of real spend).
-5. **The cache-interaction result.** Lab gains do not survive production
+6. **The cache-interaction result.** Lab gains do not survive production
    prompt caching, because cache-write costs 12.5x cache-read. At least
    one study in the review ran with caching *disabled* "for consistency."
    That single fact reconciles 21–54% in papers with 0.4–2.8% in

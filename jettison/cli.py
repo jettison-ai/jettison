@@ -29,7 +29,7 @@ def main() -> None:
 
 
 def _register_commands() -> None:
-    from jettison.cli_cmds import audit, savings, share, wrap  # noqa: F401
+    from jettison.cli_cmds import audit, optimize, savings, share, wrap  # noqa: F401
 
 
 _register_commands()
