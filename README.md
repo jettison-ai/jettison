@@ -109,7 +109,20 @@ Jettison's Commitment Verifier extracts the facts your original context commits 
 
 ## Benchmarks
 
+> Picking this project up? Start with [internal notes](internal notes), then
+> [docs/FINDINGS.md](docs/FINDINGS.md).
+
 ### What this saves on a real bill
+
+**Headline: 8.5% of a real $1,420 bill, on a machine with zero MCP servers**
+(`research/07_total_bill_savings.py`). Not 20% — earlier drafts quoted a
+share of *resident context cost* rather than of the bill; the correction is
+recorded in [docs/FINDINGS.md](docs/FINDINGS.md).
+
+The largest single win is one nobody else targets: **tool-call arguments
+are 48.6% of resident cost**, because the full text of every file the agent
+writes stays in the conversation for the rest of the session.
+
 
 Measured by replaying **101 real Claude Code sessions** (10,696 requests,
 ~$1,400 of spend, provider-resolved prices). This is the number that matters,
