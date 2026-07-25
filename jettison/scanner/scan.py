@@ -7,6 +7,7 @@ as it would appear in a request body, and reports per-category waste.
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 from pathlib import Path
 
@@ -45,17 +46,39 @@ def _scan_mcp(
     model: str,
 ) -> None:
     specs = mcp_mod.DISCOVERERS[client](project_dir)
+    launchable = [s for s in specs if s.transport == "stdio" and launch_servers]
     for spec in specs:
-        if spec.transport != "stdio" or not launch_servers:
+        if spec not in launchable:
+            _add_unintrospected(report, spec)
+
+    # Introspect concurrently: most real servers are `npx`/`uvx` launched and
+    # spend their first several seconds resolving a package, so serial
+    # scanning costs sum-of-cold-starts and pushes honest setups past any
+    # sane timeout. Results are re-ordered to match `specs` so the report
+    # stays deterministic regardless of which server answers first.
+    results: dict[str, list[mcp_mod.MCPTool] | Exception] = {}
+    if launchable:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(launchable))) as pool:
+            futures = {
+                pool.submit(mcp_mod.introspect_stdio_server, spec, timeout): spec
+                for spec in launchable
+            }
+            for future in concurrent.futures.as_completed(futures):
+                spec = futures[future]
+                try:
+                    results[spec.name] = future.result()
+                except mcp_mod.MCPIntrospectionError as e:
+                    results[spec.name] = e
+
+    for spec in launchable:
+        outcome = results.get(spec.name)
+        if isinstance(outcome, Exception) or outcome is None:
+            report.warnings.append(
+                f"could not introspect MCP server '{spec.name}': {outcome or 'no result'}"
+            )
             _add_unintrospected(report, spec)
             continue
-        try:
-            tools = mcp_mod.introspect_stdio_server(spec, timeout=timeout)
-        except mcp_mod.MCPIntrospectionError as e:
-            report.warnings.append(f"could not introspect MCP server '{spec.name}': {e}")
-            _add_unintrospected(report, spec)
-            continue
-        for tool in tools:
+        for tool in outcome:
             payload = json.dumps(tool.context_json(), separators=(",", ":"), ensure_ascii=False)
             tc = count_text(payload, model)
             report.items.append(

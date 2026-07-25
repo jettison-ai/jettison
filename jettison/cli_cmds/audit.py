@@ -35,9 +35,23 @@ from jettison.pricing import cache_aware_savings, get_price
     is_flag=True,
     help="Do not launch MCP servers for live schema introspection (config-only estimates).",
 )
+@click.option(
+    "--timeout",
+    default=None,
+    type=float,
+    help="Seconds to wait per MCP server (default: 90 — npx/uvx servers are slow to start).",
+)
 @click.option("--json", "as_json", is_flag=True, help="Emit the full report as JSON.")
 @click.option("--top", default=10, show_default=True, help="Show the N most expensive items per category.")
-def audit_cmd(client: str, project: Path | None, model: str, no_launch: bool, as_json: bool, top: int) -> None:
+def audit_cmd(
+    client: str,
+    project: Path | None,
+    model: str,
+    no_launch: bool,
+    timeout: float | None,
+    as_json: bool,
+    top: int,
+) -> None:
     """Scan your agent's standing context and report per-turn token waste.
 
     \b
@@ -47,6 +61,7 @@ def audit_cmd(client: str, project: Path | None, model: str, no_launch: bool, as
       jettison audit --json > report.json  # machine-readable output
     """
     from jettison.scanner import SUPPORTED_CLIENTS, scan
+    from jettison.scanner.mcp import INTROSPECT_TIMEOUT_S
 
     if client not in SUPPORTED_CLIENTS:
         raise click.ClickException(f"unknown client {client!r}. Supported: {', '.join(SUPPORTED_CLIENTS)}")
@@ -56,6 +71,7 @@ def audit_cmd(client: str, project: Path | None, model: str, no_launch: bool, as
         project_dir=project,
         model=model,
         launch_servers=not no_launch,
+        introspect_timeout=timeout if timeout is not None else INTROSPECT_TIMEOUT_S,
     )
 
     if as_json:

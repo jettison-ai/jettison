@@ -28,7 +28,12 @@ except ImportError:  # pragma: no cover
     tomllib = None  # type: ignore[assignment]
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
-INTROSPECT_TIMEOUT_S = 15.0
+# Generous by design: most real servers launch through `npx`/`uvx`, which
+# resolves (and sometimes downloads) a package before the process even
+# starts speaking MCP. A tight timeout silently degrades those servers to
+# config-only estimates, which is the difference between a measured audit
+# and a useless one. Scanning is concurrent, so this is wall-clock-cheap.
+INTROSPECT_TIMEOUT_S = 90.0
 
 # Per-tool overhead the host adds around each schema when materializing it
 # into context (name prefixing, framing). Conservative flat estimate.

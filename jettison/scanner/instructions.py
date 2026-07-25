@@ -53,6 +53,11 @@ def discover_claude(project_dir: Path) -> list[InstructionFile]:
         ("instructions", "CLAUDE.local.md", project_dir / "CLAUDE.local.md"),
         ("instructions", ".claude/CLAUDE.md", project_dir / ".claude" / "CLAUDE.md"),
         ("instructions", "CLAUDE.md (user)", Path.home() / ".claude" / "CLAUDE.md"),
+        # AGENTS.md is the cross-tool convention and Claude Code loads it too.
+        # Real repos lean on it hard — openmc-dev/openmc's CLAUDE.md is a
+        # 3-line pointer at a 17KB AGENTS.md — so omitting it under-reports
+        # the bill by more than the file it replaces.
+        ("instructions", "AGENTS.md (project)", project_dir / "AGENTS.md"),
     ]
     paths += _skills_from_dir(project_dir / ".claude" / "skills", "project")
     paths += _skills_from_dir(Path.home() / ".claude" / "skills", "user")
