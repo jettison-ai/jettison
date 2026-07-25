@@ -12,9 +12,9 @@ from jettison.cli import main
 @main.command("optimize")
 @click.option("--project", type=click.Path(exists=True, file_okay=False, path_type=Path), default=None)
 @click.option("--global", "global_scope", is_flag=True, help="Install for all projects (~/.claude).")
-@click.option("--no-scout", is_flag=True, help="Skip the repo-navigation subagent.")
+@click.option("--scout", is_flag=True, help="Also install the navigation subagent (measured -34% on authoring work; off by default).")
 @click.option("--no-prune", is_flag=True, help="Skip the read-pruning hook.")
-def optimize_cmd(project: Path | None, global_scope: bool, no_scout: bool, no_prune: bool) -> None:
+def optimize_cmd(project: Path | None, global_scope: bool, scout: bool, no_prune: bool) -> None:
     """Install client-side optimizations for Claude Code.
 
     \b
@@ -24,16 +24,20 @@ def optimize_cmd(project: Path | None, global_scope: bool, no_scout: bool, no_pr
     """
     from rich.console import Console
 
-    from jettison.optimize import add_delegation_rule, install_hook, install_scout
+    from jettison.optimize import add_delegation_rule, add_repo_map, install_hook, install_scout
 
     console = Console()
     console.print()
-    if not no_scout:
+
+    md, tokens = add_repo_map(project)
+    console.print(f"[green]✓[/green] repo map  [dim]{md}[/dim]")
+    console.print(f"  [dim]{tokens:,} tokens indexing the whole codebase, so the agent never explores[/dim]")
+
+    if scout:
         p = install_scout(project, global_scope)
-        md = add_delegation_rule(project)
+        add_delegation_rule(project)
         console.print(f"[green]✓[/green] scout subagent  [dim]{p}[/dim]")
-        console.print(f"  delegation rule [dim]{md}[/dim]")
-        console.print("  [dim]repo exploration runs on a cheap model; only relevant lines return[/dim]")
+        console.print("  [yellow]note:[/yellow] [dim]measured -34% on authoring work; helps only exploration[/dim]")
     if not no_prune:
         s = install_hook(project, global_scope)
         console.print(f"[green]✓[/green] read-pruning hook  [dim]{s}[/dim]")
@@ -53,9 +57,15 @@ def unoptimize_cmd(project: Path | None, global_scope: bool) -> None:
     """Remove everything `jettison optimize` installed."""
     from rich.console import Console
 
-    from jettison.optimize import remove_delegation_rule, uninstall_hook, uninstall_scout
+    from jettison.optimize import (
+        remove_delegation_rule,
+        remove_repo_map,
+        uninstall_hook,
+        uninstall_scout,
+    )
 
     console = Console()
+    console.print(f"repo map removed: {remove_repo_map(project)}")
     console.print(f"scout agent removed: {uninstall_scout(project, global_scope)}")
     console.print(f"delegation rule removed: {remove_delegation_rule(project)}")
     console.print(f"pruning hook removed: {uninstall_hook(project, global_scope)}")

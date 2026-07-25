@@ -103,6 +103,9 @@ pure authoring, so the judgement matters.
 MARKER_START = "<!-- jettison:scout -->"
 MARKER_END = "<!-- /jettison:scout -->"
 
+MAP_START = "<!-- jettison:repomap -->"
+MAP_END = "<!-- /jettison:repomap -->"
+
 
 def claude_dir(project: Path | None = None, global_scope: bool = False) -> Path:
     if global_scope:
@@ -153,5 +156,42 @@ def remove_delegation_rule(project: Path | None = None) -> bool:
         return False
     head, _, rest = text.partition(MARKER_START)
     _, _, tail = rest.partition(MARKER_END)
+    md.write_text((head.rstrip("\n") + "\n" + tail.lstrip("\n")).strip() + "\n")
+    return True
+
+
+def add_repo_map(project: Path | None = None, max_tokens: int = 3000) -> tuple[Path, int]:
+    """Inject a structural index of the repo into CLAUDE.md, fenced.
+
+    Costs zero extra turns — unlike delegating to a subagent — because it
+    rides in the instructions the client already sends, and therefore in
+    the cached prefix. Regenerating replaces the previous block rather than
+    appending, so the prefix stays stable across runs.
+    """
+    from jettison.optimize.repomap import build
+
+    root = project or Path.cwd()
+    body = build(root, max_tokens)
+    block = f"{MAP_START}\n## Repository map\n\n```\n{body}\n```\n{MAP_END}"
+
+    md = root / "CLAUDE.md"
+    text = md.read_text() if md.exists() else ""
+    if MAP_START in text:
+        head, _, rest = text.partition(MAP_START)
+        _, _, tail = rest.partition(MAP_END)
+        text = head + tail
+    md.write_text((text.rstrip("\n") + "\n\n" + block + "\n").lstrip("\n"))
+    return md, len(body) // 4
+
+
+def remove_repo_map(project: Path | None = None) -> bool:
+    md = (project or Path.cwd()) / "CLAUDE.md"
+    if not md.exists():
+        return False
+    text = md.read_text()
+    if MAP_START not in text:
+        return False
+    head, _, rest = text.partition(MAP_START)
+    _, _, tail = rest.partition(MAP_END)
     md.write_text((head.rstrip("\n") + "\n" + tail.lstrip("\n")).strip() + "\n")
     return True

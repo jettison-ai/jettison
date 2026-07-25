@@ -155,3 +155,39 @@ def test_secrets_are_never_pruned_away(tmp_path):
     })
     if out is not None:
         assert "api_key" in out["hookSpecificOutput"]["updatedToolOutput"]
+
+
+def test_repo_map_is_compact_and_deterministic(tmp_path):
+    """The map rides in the cached prefix, so it must be small and stable."""
+    from jettison.optimize.repomap import build, scan
+
+    src = tmp_path / "pkg"
+    src.mkdir()
+    (src / "a.py").write_text(
+        'import os\n\nclass Widget:\n    """A widget."""\n    def render(self, x: int) -> str:\n        return str(x)\n\n'
+        "def helper(n: int) -> int:\n    return n * 2\n"
+    )
+    (src / "b.py").write_text("from a import Widget\n\ndef use() -> None:\n    Widget()\n")
+    m1 = build(tmp_path)
+    assert build(tmp_path) == m1                 # byte-stable
+    assert "class Widget" in m1
+    assert "def helper(n: int) -> int" in m1     # signature, not body
+    assert "return n * 2" not in m1              # bodies excluded
+    assert "A widget." in m1                     # one-line docstring kept
+    mods = scan(tmp_path)
+    assert any(mod.imported_by > 0 for mod in mods)   # import ranking works
+
+
+def test_repo_map_injection_is_replaceable(tmp_path):
+    from jettison.optimize import add_repo_map, remove_repo_map
+
+    (tmp_path / "m.py").write_text("def f():\n    pass\n")
+    (tmp_path / "CLAUDE.md").write_text("# Project\n\nhand-written rules\n")
+    add_repo_map(tmp_path)
+    add_repo_map(tmp_path)                       # regenerate must replace, not append
+    text = (tmp_path / "CLAUDE.md").read_text()
+    assert text.count("jettison:repomap") == 2   # one open, one close
+    assert "hand-written rules" in text
+    assert remove_repo_map(tmp_path) is True
+    assert "jettison" not in (tmp_path / "CLAUDE.md").read_text()
+    assert "hand-written rules" in (tmp_path / "CLAUDE.md").read_text()
