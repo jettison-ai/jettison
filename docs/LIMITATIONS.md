@@ -7,9 +7,16 @@ spend, prices resolved from provider tables):
 
 | Layer | Share of that bill |
 |---|---:|
-| Standing context (what Jettison v1 optimizes) | **1.3–2.1%** |
+| Standing context (schemas, skills, instructions) | **1.3–2.1%** |
 | Re-read waste (exact repeats, supersets, write-readback) | **~0.6%** |
+| Resident tool output, shaped on arrival (Horizon Manager) | **~6.0%** |
 | Everything else — accumulated conversation resident in the window | the rest |
+
+Those layers compose, so a heavy session sees roughly **8–9%** off the input
+bill from Jettison today, and materially more when prefix caching is cold
+(cache-miss regimes price the same avoided tokens ~10x higher). None of that
+is the 60–90% figure a token-percentage headline would suggest — see the
+cache-aware accounting note below.
 
 Why: 97.3% of input tokens were **cache reads**, and resident context on a
 median request was **185,641 tokens** (mean 297,560, p90 725,876). Standing

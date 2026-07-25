@@ -54,8 +54,13 @@ class LoopOutcome:
 
 
 class InterceptionLoop:
-    def __init__(self, store: CapabilityStore, max_rounds: int = MAX_ROUNDS) -> None:
+    def __init__(
+        self, store: CapabilityStore, max_rounds: int = MAX_ROUNDS, horizon: Any = None
+    ) -> None:
         self.store = store
+        # Horizon Manager owns jettison_retrieve_content; the loop resolves it
+        # through the same path as the capability meta-tools.
+        self.horizon = horizon
         self.max_rounds = max_rounds
 
     def patch_incoming_messages(
@@ -108,7 +113,7 @@ class InterceptionLoop:
             results: list[tuple[formats.ToolCall, str]] = []
             for call in meta:
                 try:
-                    content = resolve_meta_call(self.store, call.name, call.arguments)
+                    content = resolve_meta_call(self.store, call.name, call.arguments, self.horizon)
                 except Exception as e:  # resolution must never kill the turn
                     logger.warning("meta-tool %s failed: %s", call.name, e)
                     content = f'{{"error": "capability resolution failed: {e}"}}'

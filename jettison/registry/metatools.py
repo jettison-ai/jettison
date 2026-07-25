@@ -25,7 +25,9 @@ from jettison.registry.store import CapabilityStore
 
 SEARCH_TOOL = "jettison_search_capabilities"
 LOAD_TOOL = "jettison_load_capabilities"
-META_TOOL_NAMES = frozenset({SEARCH_TOOL, LOAD_TOOL})
+# Owned by the Horizon Manager, resolved through the same interception loop.
+RETRIEVE_TOOL = "jettison_retrieve_content"
+META_TOOL_NAMES = frozenset({SEARCH_TOOL, LOAD_TOOL, RETRIEVE_TOOL})
 
 _SEARCH_DEF = {
     "name": SEARCH_TOOL,
@@ -88,8 +90,21 @@ def openai_tool_defs() -> list[dict[str, Any]]:
     return out
 
 
-def resolve_meta_call(store: CapabilityStore, tool_name: str, arguments: dict[str, Any]) -> str:
+def resolve_meta_call(
+    store: CapabilityStore,
+    tool_name: str,
+    arguments: dict[str, Any],
+    horizon: Any = None,
+) -> str:
     """Execute a meta-tool locally; returns the tool_result content string."""
+    if tool_name == RETRIEVE_TOOL:
+        key = str(arguments.get("key", ""))
+        original = horizon.retrieve(key) if horizon is not None else None
+        if original is None:
+            return json.dumps(
+                {"error": f"no held content for key {key!r}", "hint": "it may have aged out"}
+            )
+        return original
     if tool_name == SEARCH_TOOL:
         hits = store.search(str(arguments.get("query", "")), limit=8)
         if not hits:

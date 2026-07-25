@@ -120,11 +120,44 @@ request leaves the machine, and are logged to
 containment for `security_rule` and `output_format` (the two kinds where
 paraphrase is legitimate). The extraction interface is already the seam.
 
-## 7. Deferred by design
+## 7. Horizon Manager — un-deferred, and narrowed to what pays
+
+Originally deferred "until adoption proves long-session cost dominates."
+Measurement got there first. On 101 real Claude Code sessions (10,696
+requests, ~$1,400): 97.3% of input tokens were cache reads, and resident
+context on a median request was **185,641 tokens** — against an 11,055-token
+standing context. Long-session accumulation *is* the dominant cost, so the
+component that addresses it is now shipped.
+
+It is deliberately narrow, because replaying those sessions priced two
+candidate strategies and only one paid:
+
+| Strategy | Modelled return | Verdict |
+|---|---:|---|
+| Shape oversized tool results **on arrival** | **6.0%** | shipped |
+| Evict stale results from **history** | 2.6% | not built |
+
+Eviction loses because mutating cached history forces a cache-write, and
+cache-write is **12.5x** cache-read on current Anthropic pricing — an
+eviction must displace 12.5 turns of reads before it breaks even, which most
+stale content never does. Only 17 evictions in the whole corpus cleared it.
+Shaping on arrival touches only the newest turn, which no provider has
+cached yet, so it is free by construction.
+
+The economics live in `jettison/horizon/economics.py` as executable rules
+(`evaluate_shape`, `eviction_break_even_turns`) rather than prose, so the
+decision can be re-run when pricing changes. If a provider ever narrows the
+read/write spread, eviction becomes viable and the break-even function will
+say so.
+
+Shaping is reversible (`jettison_retrieve_content`) and gated by the
+Commitment Verifier: if a placeholder would drop a path, number, identifier
+or rule the original asserted, the result is left untouched.
+
+## 8. Still deferred
 
 - **Budget Allocator** (phase 2): `allocate(messages, budget, task_profile)`
   with greedy marginal utility over Headroom's existing relevance scores.
   Pipeline seams exist; no code.
-- **Horizon Manager**: deferred until adoption proves long-session cost
-  dominates, and because it overlaps Headroom's SharedContext memory — building
-  it now would duplicate a subsystem we already inherit.
+- **Learned rankers / instruction-specialized compressor**: BM25 and
+  deterministic compilation first; train only against harness evidence.

@@ -29,6 +29,7 @@ import httpx
 from jettison.compiler import build_bundle, compile_instructions, minify_tools
 from jettison.compiler.instructions_min import SkillSummary
 from jettison.proxy import formats, heartbeat
+from jettison.horizon import HorizonManager, retrieve_tool_def
 from jettison.proxy.interceptor import InterceptionLoop, SessionState
 from jettison.proxy.native_deferral import detects_native_deferral
 from jettison.proxy.rewrite import RewriteResult, rewrite_request, session_key
@@ -56,6 +57,10 @@ class JettisonProxyConfig:
     # OpenClaw-style cache-warming pings: keep the warmed prefix, drop the
     # uncached conversation tail (see proxy/heartbeat.py).
     heartbeat_profile: bool = False
+    # Horizon Manager: shape oversized tool results as they arrive so long
+    # sessions stop re-billing them on every later turn.
+    horizon: bool = True
+    horizon_expected_turns: int = 30
     # skills discovered at wrap time; merged into every bundle
     skills: list[SkillSummary] = field(default_factory=list)
     request_timeout_s: float = 600.0
@@ -139,6 +144,7 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
     bundles = BundleCache(config)
     sessions: dict[str, SessionState] = {}
     text_verifier = TextVerifier()
+    horizon_mgr = HorizonManager() if config.horizon else None
     http_client = http_client or httpx.AsyncClient(timeout=config.request_timeout_s)
 
     @app.on_event("shutdown")
@@ -227,6 +233,35 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
 
         optimized = rewrite.rewrote_tools or rewrite.rewrote_system
 
+        # 3a. Horizon Manager: shape oversized tool results in the newest
+        # turn. Newest-turn-only is the cache-safety rule — that turn is not
+        # in any provider cache yet, so rewriting it is free, while touching
+        # history would cost a cache-write at ~12.5x the read rate.
+        horizon_stats = None
+        if horizon_mgr is not None:
+            horizon_stats = horizon_mgr.shape_newest_turn(
+                body, provider, config.horizon_expected_turns
+            )
+            if horizon_stats.shaped:
+                tools_out = body.get("tools")
+                if isinstance(tools_out, list):
+                    rt = retrieve_tool_def(provider)
+                    names = {
+                        (t.get("function") or {}).get("name") or t.get("name")
+                        for t in tools_out
+                        if isinstance(t, dict)
+                    }
+                    if (rt.get("function") or {}).get("name", rt.get("name")) not in names:
+                        tools_out.append(rt)
+                ledger.record_event(
+                    tokens_before=horizon_stats.tokens_freed,
+                    tokens_after=0,
+                    model=model,
+                    client=config.client_label,
+                    source="horizon",
+                    cache_tier="cache_read",
+                )
+
         # 3b. Heartbeat profile: cache-warming pings keep the warmed
         # prefix byte-identical and drop the uncached tail only.
         is_heartbeat_turn = False
@@ -298,7 +333,7 @@ def create_app(config: JettisonProxyConfig | None = None, http_client: httpx.Asy
         meta_resolved = 0
         mixed = False
         if store is not None and rewrite.rewrote_tools:
-            loop = InterceptionLoop(store)
+            loop = InterceptionLoop(store, horizon=horizon_mgr)
             outcome = await loop.run(
                 resp_json, body.get("messages") or [], body.get("tools"), api_call, provider, session
             )

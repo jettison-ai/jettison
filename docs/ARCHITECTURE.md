@@ -164,3 +164,29 @@ underneath when installed. For Claude Code, `ENABLE_TOOL_SEARCH=true` is always
 set so the client's native deferred loading keeps working behind a custom base
 URL (upstream issue #746) — Jettison optimizes only what actually reaches the
 wire.
+
+### `jettison.horizon` — resident-context management
+
+The layer that addresses the largest measured cost: content that lands in a
+conversation once and is then re-billed on every later turn.
+
+- `economics.py` — the decision arithmetic, kept executable rather than
+  documented: a result's true cost is `tokens x remaining_turns` at the
+  cache-read rate, so an 8k-token read at turn 3 of a 50-turn session is
+  worth ~40x more to shape than the same read at turn 49.
+  `eviction_break_even_turns()` encodes why history is never mutated —
+  cache-write is ~12.5x cache-read, so an eviction must displace 12.5 turns
+  of reads to pay for itself.
+- `manager.py` — `HorizonManager.shape_newest_turn()` replaces oversized
+  tool results in the final message with a head/tail excerpt plus a
+  retrieval marker. Newest-turn-only is the cache-safety rule, not a
+  simplification: that turn is not in any provider cache yet.
+  Originals are held locally and returned by the `jettison_retrieve_content`
+  meta-tool, resolved through the same interception loop as the capability
+  meta-tools. Every shaping decision is checked against the Commitment
+  Verifier first; a placeholder that would drop a path, number, identifier
+  or rule is rejected and the result passes through untouched.
+
+Measured by replaying 101 real sessions: shaping-on-arrival returns ~6.0% of
+the input bill, versus 2.6% for history eviction, which is why only the
+former is implemented.
