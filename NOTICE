@@ -1,0 +1,19 @@
+Jettison
+Copyright 2026 Saurabh Yergattikar
+
+This product is built using components derived from Headroom
+(https://github.com/headroomlabs-ai/headroom), licensed under the
+Apache License, Version 2.0. Headroom Copyright Headroom Contributors.
+
+Jettison retains and runs Headroom's runtime compression stack unmodified
+(SmartCrusher, CodeCompressor, Kompress, CCR, CacheAligner, proxy and wrap
+machinery) via the pinned `headroom-ai` package, with attribution.
+Jettison is not affiliated with, endorsed by, or sponsored by the Headroom
+project. "Headroom" is a mark of its respective owners; Jettison makes no
+trademark claim to it.
+
+Original modules in this repository (jettison/scanner, jettison/compiler,
+jettison/registry, jettison/proxy, jettison/verifier, jettison/savings,
+jettison/adapters, and the Jettison CLI) are:
+Copyright 2026 Saurabh Yergattikar, licensed under the Apache License,
+Version 2.0.
