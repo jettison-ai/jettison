@@ -11,7 +11,7 @@ Report it privately through GitHub Security Advisories:
 > (direct link: <https://github.com/jettison-ai/jettison/security/advisories/new>)
 
 That opens a private thread visible only to maintainers, and it is the
-preferred channel. If you cannot use it, email **<MAINTAINER_EMAIL>** with
+preferred channel. If you cannot use it, email **saurabh.ssy@gmail.com** with
 `SECURITY` in the subject line.
 
 Please include:
@@ -55,7 +55,7 @@ Jettison is pre-1.0: fixes go to the latest minor release line, and there are
 no long-term support branches. Upgrade to the latest `0.x` before reporting.
 
 Vulnerabilities in the pinned upstream `headroom-ai` package should be reported
-to [Headroom](https://github.com/headroomlabs-ai/headroom); tell us too, so we
+to [Headroom](https://github.com/chopratejas/headroom); tell us too, so we
 can move the pin.
 
 ## Threat model — what Jettison actually touches

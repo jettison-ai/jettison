@@ -6,7 +6,7 @@ providers — with a silent quality verifier that restores content whenever
 optimization could hurt answers.
 
 Built using components derived from Headroom under Apache 2.0
-(https://github.com/headroomlabs-ai/headroom). See NOTICE.
+(https://github.com/chopratejas/headroom). See NOTICE.
 """
 
 from jettison._version import __version__

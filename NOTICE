@@ -2,7 +2,7 @@ Jettison
 Copyright 2026 Saurabh Yergattikar
 
 This product is built using components derived from Headroom
-(https://github.com/headroomlabs-ai/headroom), licensed under the
+(https://github.com/chopratejas/headroom), licensed under the
 Apache License, Version 2.0. Headroom Copyright Headroom Contributors.
 
 Jettison retains and runs Headroom's runtime compression stack unmodified

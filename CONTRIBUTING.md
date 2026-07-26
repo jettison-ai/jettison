@@ -155,7 +155,7 @@ list that fails verification is sent untouched, by design.
 ### 6. Apache-2.0 and the obligations toward Headroom
 
 Jettison is Apache-2.0 and is a loosely-coupled fork/extension of
-[Headroom](https://github.com/headroomlabs-ai/headroom), also Apache-2.0.
+[Headroom](https://github.com/chopratejas/headroom), also Apache-2.0.
 Contributions are accepted under Apache-2.0; by opening a PR you confirm you
 have the right to contribute the code under that license.
 

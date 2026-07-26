@@ -59,7 +59,7 @@ jettison audit --project tests/fixtures/demo_project --json | head
 
 **Licensing** — see [NOTICE](../blob/main/NOTICE)
 
-- [ ] Any code derived from [Headroom](https://github.com/headroomlabs-ai/headroom)
+- [ ] Any code derived from [Headroom](https://github.com/chopratejas/headroom)
       (or any other Apache-2.0 project) is attributed in `NOTICE`, retains its
       copyright and license headers, and modifications are marked.
 - [ ] No code copied in from an incompatible license.
