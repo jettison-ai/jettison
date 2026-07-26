@@ -30,9 +30,8 @@ non-reversible on a normal install.
   longer published as a claim**: measured cost effects ranged from +10.6% to
   +2.4% with confidence intervals spanning zero, because the savings land in
   cached input tokens that bill at roughly a tenth of fresh input.
-- `internal notes` had drifted from the shipped design — it still described
-  Jettison as a proxy. Rewritten to separate the client-side path that ships
-  from the modules retained only so the negative result stays reproducible.
+- Documentation now separates the client-side path that ships from the
+  modules retained only so the proxy negative result stays reproducible.
 
 ### Added
 

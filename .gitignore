@@ -9,3 +9,7 @@ site/
 parity-results.json
 dist/
 audit.json
+
+# Internal working docs — never public (kept in ../jettison-internal)
+launch/
+internal notes
