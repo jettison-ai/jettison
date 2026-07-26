@@ -12,6 +12,9 @@ from jettison.cli import main
 @main.command("optimize")
 @click.option("--project", type=click.Path(exists=True, file_okay=False, path_type=Path), default=None)
 @click.option("--global", "global_scope", is_flag=True, help="Install for all projects (~/.claude).")
+@click.option("--client", "-c", default="claude", show_default=True,
+              type=click.Choice(["claude", "codex", "cursor", "cline", "opencode", "openclaw"]),
+              help="Which agent client to optimize. Non-Claude clients get the repo map and\noutput style; the read-pruning hook is Claude Code only.")
 @click.option("--scout", is_flag=True, help="Also install the navigation subagent (measured -34% on authoring work; off by default).")
 @click.option("--no-prune", is_flag=True, help="Skip the read-pruning hook.")
 @click.option("--no-terse", is_flag=True, help="Skip output-verbosity reduction.")
@@ -19,6 +22,7 @@ from jettison.cli import main
 def optimize_cmd(
     project: Path | None,
     global_scope: bool,
+    client: str,
     scout: bool,
     no_prune: bool,
     no_terse: bool,
@@ -44,12 +48,12 @@ def optimize_cmd(
     console = Console()
     console.print()
 
-    md, tokens = add_repo_map(project)
+    md, tokens = add_repo_map(project, client=client)
     console.print(f"[green]✓[/green] repo map  [dim]{md}[/dim]")
     console.print(f"  [dim]{tokens:,} tokens indexing the whole codebase, so the agent never explores[/dim]")
 
     if not no_terse:
-        md = verbosity.install(project, terse_level)
+        md = verbosity.install(project, terse_level, client=client)
         console.print(f"[green]✓[/green] output style ({terse_level})  [dim]{md}[/dim]")
         console.print("  [dim]output is billed ~50x cache-read and re-sent every later turn[/dim]")
 
@@ -58,10 +62,12 @@ def optimize_cmd(
         add_delegation_rule(project)
         console.print(f"[green]✓[/green] scout subagent  [dim]{p}[/dim]")
         console.print("  [yellow]note:[/yellow] [dim]measured -34% on authoring work; helps only exploration[/dim]")
-    if not no_prune:
+    if not no_prune and client == "claude":
         s = install_hook(project, global_scope)
         console.print(f"[green]✓[/green] read-pruning hook  [dim]{s}[/dim]")
-        console.print("  [dim]large file reads are trimmed to what your task needs, with line numbers kept[/dim]")
+        console.print("  [dim]large file reads trimmed to what the task needs; logs compressed as prose[/dim]")
+    elif not no_prune:
+        console.print(f"[dim]—[/dim] read-pruning hook skipped: {client} has no hook API")
 
     console.print(
         "\n[bold]Restart Claude Code[/bold] to pick these up, then run "
@@ -73,7 +79,8 @@ def optimize_cmd(
 @main.command("unoptimize")
 @click.option("--project", type=click.Path(exists=True, file_okay=False, path_type=Path), default=None)
 @click.option("--global", "global_scope", is_flag=True)
-def unoptimize_cmd(project: Path | None, global_scope: bool) -> None:
+@click.option("--client", "-c", default="claude", show_default=True)
+def unoptimize_cmd(project: Path | None, global_scope: bool, client: str) -> None:
     """Remove everything `jettison optimize` installed."""
     from rich.console import Console
 
@@ -86,8 +93,8 @@ def unoptimize_cmd(project: Path | None, global_scope: bool) -> None:
     )
 
     console = Console()
-    console.print(f"repo map removed: {remove_repo_map(project)}")
-    console.print(f"output style removed: {verbosity.uninstall(project)}")
+    console.print(f"repo map removed: {remove_repo_map(project, client)}")
+    console.print(f"output style removed: {verbosity.uninstall(project, client)}")
     console.print(f"scout agent removed: {uninstall_scout(project, global_scope)}")
     console.print(f"delegation rule removed: {remove_delegation_rule(project)}")
     console.print(f"pruning hook removed: {uninstall_hook(project, global_scope)}")

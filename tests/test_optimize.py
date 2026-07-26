@@ -319,3 +319,33 @@ def test_hook_routes_bash_to_prose_not_pruner(monkeypatch):
     monkeypatch.setattr(runner, "prune_read_output", fail_prune)
     runner.handle({"tool_name": "Bash", "tool_response": {"file": {"content": LOG_TEXT}}})
     assert seen["tool"] == "Bash"
+
+
+def test_optimize_targets_the_right_file_per_client(tmp_path):
+    """Repo map and output style are plain markdown, so they work in any
+    client that loads project instructions — not just Claude Code."""
+    from jettison.optimize import add_repo_map, verbosity
+    from jettison.optimize.scout import instruction_path
+
+    (tmp_path / "m.py").write_text("def f():\n    pass\n")
+    for client, filename in (
+        ("claude", "CLAUDE.md"),
+        ("codex", "AGENTS.md"),
+        ("cursor", ".cursorrules"),
+        ("cline", ".clinerules"),
+    ):
+        assert instruction_path(tmp_path, client).name == filename
+        md, _ = add_repo_map(tmp_path, client=client)
+        verbosity.install(tmp_path, client=client)
+        assert md.name == filename
+        text = md.read_text()
+        assert "jettison:repomap" in text and "jettison:verbosity" in text
+
+
+def test_uninstall_is_client_specific(tmp_path):
+    from jettison.optimize import add_repo_map, remove_repo_map
+
+    (tmp_path / "m.py").write_text("def f():\n    pass\n")
+    add_repo_map(tmp_path, client="codex")
+    assert remove_repo_map(tmp_path, client="claude") is False
+    assert remove_repo_map(tmp_path, client="codex") is True

@@ -174,7 +174,27 @@ def remove_delegation_rule(project: Path | None = None) -> bool:
     return True
 
 
-def add_repo_map(project: Path | None = None, max_tokens: int = 3000) -> tuple[Path, int]:
+# Where each client reads its project instructions. The repo map and the
+# response-style block are plain markdown, so they work anywhere the client
+# already loads instructions — no hook API required. Only the read-pruning
+# hook is Claude Code specific.
+INSTRUCTION_FILES = {
+    "claude": "CLAUDE.md",
+    "codex": "AGENTS.md",
+    "opencode": "AGENTS.md",
+    "cursor": ".cursorrules",
+    "cline": ".clinerules",
+    "openclaw": "AGENTS.md",
+}
+
+
+def instruction_path(project: Path | None = None, client: str = "claude") -> Path:
+    return (project or Path.cwd()) / INSTRUCTION_FILES.get(client, "CLAUDE.md")
+
+
+def add_repo_map(
+    project: Path | None = None, max_tokens: int = 3000, client: str = "claude"
+) -> tuple[Path, int]:
     """Inject a structural index of the repo into CLAUDE.md, fenced.
 
     Costs zero extra turns — unlike delegating to a subagent — because it
@@ -188,7 +208,7 @@ def add_repo_map(project: Path | None = None, max_tokens: int = 3000) -> tuple[P
     body = build(root, max_tokens)
     block = f"{MAP_START}\n## Repository map\n\n```\n{body}\n```\n{MAP_END}"
 
-    md = root / "CLAUDE.md"
+    md = instruction_path(root, client)
     text = md.read_text() if md.exists() else ""
     if MAP_START in text:
         head, _, rest = text.partition(MAP_START)
@@ -198,8 +218,8 @@ def add_repo_map(project: Path | None = None, max_tokens: int = 3000) -> tuple[P
     return md, len(body) // 4
 
 
-def remove_repo_map(project: Path | None = None) -> bool:
-    md = (project or Path.cwd()) / "CLAUDE.md"
+def remove_repo_map(project: Path | None = None, client: str = "claude") -> bool:
+    md = instruction_path(project, client)
     if not md.exists():
         return False
     text = md.read_text()

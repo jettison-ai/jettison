@@ -66,13 +66,17 @@ def block(level: str = DEFAULT_LEVEL) -> str:
     return f"{MARKER_START}{body}{MARKER_END}"
 
 
-def install(project: Path | None = None, level: str = DEFAULT_LEVEL) -> Path:
+def install(
+    project: Path | None = None, level: str = DEFAULT_LEVEL, client: str = "claude"
+) -> Path:
     """Inject the style block into CLAUDE.md, replacing any previous one.
 
     Replacing rather than appending keeps the instructions byte-stable
     across re-runs, which matters because they sit in the cached prefix.
     """
-    md = (project or Path.cwd()) / "CLAUDE.md"
+    from jettison.optimize.scout import instruction_path
+
+    md = instruction_path(project, client)
     text = md.read_text() if md.exists() else ""
     if MARKER_START in text:
         head, _, rest = text.partition(MARKER_START)
@@ -82,8 +86,10 @@ def install(project: Path | None = None, level: str = DEFAULT_LEVEL) -> Path:
     return md
 
 
-def uninstall(project: Path | None = None) -> bool:
-    md = (project or Path.cwd()) / "CLAUDE.md"
+def uninstall(project: Path | None = None, client: str = "claude") -> bool:
+    from jettison.optimize.scout import instruction_path
+
+    md = instruction_path(project, client)
     if not md.exists():
         return False
     text = md.read_text()
