@@ -71,9 +71,21 @@ def optimize_cmd(
         console.print(f"[dim]—[/dim] read-pruning hook skipped: {client} has no hook API")
 
     console.print(
-        "\n[bold]Restart Claude Code[/bold] to pick these up, then run "
-        "[bold]jettison savings[/bold] after a session.\n"
-        "[dim]Undo anything with: jettison unoptimize[/dim]\n"
+        "\n[bold]Restart Claude Code[/bold] to pick these up.\n"
+    )
+    # Say plainly how strong the evidence is. A user who installs this
+    # believing it is guaranteed and then sees a worse bill is a user we
+    # lied to — and the measurements do not support a guarantee yet.
+    console.print(
+        "[yellow]Evidence status:[/yellow] measured at [bold]-10.6% cost, -25% turns[/bold]\n"
+        "over 6 paired tasks on a real repo, but [bold]2 of those 6 came out\n"
+        "slightly negative[/bold] and the confidence interval still spans zero.\n"
+        "Savings concentrate in exploration and comprehension work; pure\n"
+        "authoring is closer to neutral.\n\n"
+        "[bold]Do not take our word for it:[/bold] run [bold]jettison verify[/bold] to\n"
+        "measure it on your own repository. If it comes out negative there,\n"
+        "please tell us — that is more useful than a win.\n\n"
+        "[dim]Undo everything with: jettison unoptimize[/dim]\n"
     )
 
 

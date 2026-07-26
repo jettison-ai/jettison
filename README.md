@@ -4,13 +4,22 @@
 
 ```bash
 jettison audit       # where your tokens actually go (read-only, 30 seconds)
-jettison optimize    # install the savings — client-side, reversible
-jettison savings     # what you avoided
+jettison verify      # measure Jettison on YOUR repo before trusting it
+jettison optimize    # install the savings — client-side, fully reversible
 ```
 
 Measured on real Claude Code sessions: **−10.6% cost, −25% turns, −19% wall
-clock**, and up to **−42%** on exploration-heavy work. Full numbers and
-limits in [Benchmarks](#benchmarks) — including where it *doesn't* help.
+clock**, up to **−42%** on exploration-heavy work.
+
+**And we ship the experiment, not just the number.** `jettison verify` runs
+the same paired A/B we use internally against your own repository and tells
+you what really happened to your bill — including when the answer is
+"nothing." Every other tool in this space advertises 60–95%; independent
+replication measures them at 0.4–2.8% of real spend. We would rather you
+checked.
+
+> **Honest status:** 6 paired tasks, 2 of them slightly negative, CI still
+> spans zero. Directionally positive, not a guarantee. Run `verify`.
 
 ## The problem
 
