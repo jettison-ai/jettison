@@ -527,3 +527,66 @@ try the `terse` level and measure.
 > some tasks.
 
 Still with a CI spanning zero. Tighten it before publishing anything.
+
+---
+
+# Part 5 — A measurement bug, and what survived it
+
+## 27. `usage` is the last request; `modelUsage` is the session
+
+Claude Code's `--output-format json` reports **two different scopes**:
+
+```
+usage.cache_read_input_tokens    -> the FINAL request only
+modelUsage.cacheReadInputTokens  -> the whole session
+total_cost_usd                   -> the whole session
+```
+
+`research/08_live_ab_test.py` read the first while comparing against the
+third — last-request tokens against session cost. On short sessions the
+two coincide, which is why it survived several runs undetected. It
+surfaced only when a task reported **89% fewer tokens alongside a 40%
+cost increase**, which cannot both be true.
+
+**Cost figures were never affected** — `total_cost_usd` was correct
+throughout. Token figures on long sessions were.
+
+| Run | Cost (unchanged) | Tokens: reported → corrected |
+|---|---:|---|
+| Scout batch | +15.1% | 52.5% → **−14.7%** |
+| Composition, balanced | +10.6% | 33.1% → 33.1% (short sessions; unaffected) |
+| Composition, terse | −20.6% | 19.5% → **0.7%** |
+
+Lesson for the record: **a savings claim and its denominator must come
+from the same scope.** This is the second time the same class of error
+appeared — the first was quoting share-of-payload as share-of-bill.
+
+## 28. Terse verbosity is harmful; balanced is the shipping default
+
+Seven paired tasks with `terse`:
+
+| | direct | jettison (terse) |
+|---|---:|---:|
+| cost | $2.3248 | **$2.8045 (−20.6%)** |
+| cache_write | 136,237 | **223,155 (+64%)** |
+| output | 27,428 | **36,332 (+32%)** |
+| turns | 79 | 61 |
+
+Terse produced **more** output, not less. The aggressive framing appears
+to push the model into re-planning instead of answering. `balanced`
+returned +10.6% on the same stack, so it stays the default and `terse` is
+retained for experimentation only, labelled in the CLI.
+
+## 29. Best measured configuration (V1)
+
+Repo map + read pruning + prose compression + balanced verbosity:
+
+| | direct | jettison |
+|---|---:|---:|
+| cost | $1.9615 | **$1.7539 (+10.6%)** |
+| turns | 63 | **47 (−25%)** |
+| wall clock | 329s | **267s (−19%)** |
+
+n=6 mixed tasks, 95% CI [−6.3%, 23.6%]. Directionally positive, CI still
+spans zero. **Best on exploration (+42.3% on one task), roughly neutral on
+some authoring.**

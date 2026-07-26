@@ -19,17 +19,36 @@ results = Path(sys.argv[1] if len(sys.argv) > 1 else "ab/results")
 
 def load(p: Path) -> dict | None:
     try:
-        return json.loads(p.read_text())
+        return json.loads(p.read_text(), strict=False)
     except Exception:
         return None
 
 
 def tokens(d: dict) -> dict:
-    u = d.get("usage") or {}
-    cr = u.get("cache_read_input_tokens", 0) or 0
-    cw = u.get("cache_creation_input_tokens", 0) or 0
-    fi = u.get("input_tokens", 0) or 0
-    out = u.get("output_tokens", 0) or 0
+    """Session totals, from `modelUsage`.
+
+    The top-level `usage` block reports only the FINAL request of the
+    session, while `total_cost_usd` is the session total. Comparing the two
+    is apples to oranges and silently corrupted every earlier measurement —
+    one task showed 89% "fewer tokens" alongside a 40% cost increase, which
+    is arithmetically impossible and is what exposed the error. `modelUsage`
+    aggregates across the whole session, including subagents.
+    """
+    mu = d.get("modelUsage") or {}
+    cr = cw = fi = out = 0
+    for stats in mu.values():
+        if not isinstance(stats, dict):
+            continue
+        cr += stats.get("cacheReadInputTokens", 0) or 0
+        cw += stats.get("cacheCreationInputTokens", 0) or 0
+        fi += stats.get("inputTokens", 0) or 0
+        out += stats.get("outputTokens", 0) or 0
+    if not mu:  # older captures without modelUsage
+        u = d.get("usage") or {}
+        cr = u.get("cache_read_input_tokens", 0) or 0
+        cw = u.get("cache_creation_input_tokens", 0) or 0
+        fi = u.get("input_tokens", 0) or 0
+        out = u.get("output_tokens", 0) or 0
     return {"cache_read": cr, "cache_write": cw, "input": fi, "output": out,
             "total_input": cr + cw + fi}
 

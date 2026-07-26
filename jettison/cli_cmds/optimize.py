@@ -18,7 +18,8 @@ from jettison.cli import main
 @click.option("--scout", is_flag=True, help="Also install the navigation subagent (measured -34% on authoring work; off by default).")
 @click.option("--no-prune", is_flag=True, help="Skip the read-pruning hook.")
 @click.option("--no-terse", is_flag=True, help="Skip output-verbosity reduction.")
-@click.option("--terse-level", type=click.Choice(["balanced", "terse"]), default="balanced", show_default=True)
+@click.option("--terse-level", type=click.Choice(["balanced", "terse"]), default="balanced",
+              show_default=True, help="Response style. 'terse' measured WORSE (-20.6% cost); experimental only.")
 def optimize_cmd(
     project: Path | None,
     global_scope: bool,

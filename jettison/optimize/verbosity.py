@@ -30,6 +30,7 @@ MARKER_END = "<!-- /jettison:verbosity -->"
 # Levels trade brevity against readability. `balanced` is the default
 # because the aggressive setting starts eating explanations users want.
 LEVELS = {
+    # The shipping default. Measured +10.6% cost on a mixed six-task A/B.
     "balanced": """
 ## Response style
 
@@ -45,6 +46,11 @@ work that is already visible in the diff or tool output.
   sentences — do not reproduce the code you just wrote.
 - Do not repeat file contents you have already shown.
 """,
+    # MEASURED HARMFUL — do not make this the default. In a 7-task live
+    # A/B it produced *more* output (27,428 -> 36,332 tokens), +64%
+    # cache-write and -20.6% on cost, against +10.6% for `balanced` on the
+    # same stack. The aggressive framing appears to push the model into
+    # re-planning rather than answering. Kept for experimentation only.
     "terse": """
 ## Response style
 
