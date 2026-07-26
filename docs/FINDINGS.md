@@ -458,3 +458,72 @@ scout eats its own saving. This is the highest-leverage tuning target.
 
 Never a flat percentage without the task-type split: a write-heavy user
 who is promised 15% will measure zero and say so publicly.
+
+---
+
+# Part 4 — The composition (client-side stack)
+
+Repo map + read pruning + verbosity, installed by `jettison optimize`.
+Real Claude Code both arms on `pallets/click`, six mixed tasks
+(3 exploration, 2 authoring, 1 mixed), alternating arm order.
+
+## 22. Result
+
+| Task | Type | Cost saved | Tokens saved |
+|---|---|---:|---:|
+| 0 | exploration | **+42.3%** | 78.2% |
+| 3 | authoring | **+16.8%** | 19.7% |
+| 1 | exploration | +4.5% | 23.9% |
+| 4 | authoring | +0.6% | 26.4% |
+| 2 | exploration | −2.3% | 28.4% |
+| 5 | mixed | −9.8% | −8.3% |
+| **TOTAL** | | **+10.6%** | **+33.1%** |
+
+$1.9615 → $1.7539. Mean 8.7%, sd 18.7, **95% CI [−6.3%, 23.6%], n=6** —
+directionally positive, **not yet publishable**.
+
+| Aggregate | direct | jettison | |
+|---|---:|---:|---:|
+| cache_read | 2,716,363 | 1,755,131 | −35% |
+| cache_write | 132,955 | 151,235 | +14% |
+| output | 23,229 | 21,312 | −8% |
+| turns | 63 | 47 | **−25%** |
+| wall clock | 329s | 267s | **−19%** |
+
+## 23. The cache-write increase is the map, and it pays 4.2x
+
++18,280 cache-write tokens across 6 sessions. The repo map is 2,676
+tokens x 6 sessions = 16,056 of that; the remainder is noise. It costs
+**$0.0685** to cache and buys **$0.2884** of avoided reads — a **4.2x**
+return. Not the proxy failure mode returning; the price of the index,
+correctly paid once per session.
+
+## 24. Token savings are ~3x the dollar savings, again
+
+33.1% of tokens, 10.6% of dollars. Savings land in cache-read tokens,
+which bill at ~a tenth of fresh input. **Never quote the token number as
+a cost number.**
+
+## 25. The repo map rescues authoring, which scout could not
+
+Task 3 (add a function plus tests) returned **+16.8%**. Every previous
+authoring measurement was −2% to −6%, because scout's delegation
+round-trip is pure overhead when there is nothing to explore. A
+zero-turn index has no such floor: the agent knows where `_utils.py` is
+without hunting for it. This is why scout is now opt-in and probably
+obsolete.
+
+## 26. Verbosity is underperforming its promise
+
+Output fell only **8%**, against Caveman's claimed 40–65%. Either the
+`balanced` style is too gentle or the model is not honouring it. Output
+bills at ~50x cache-read, so this is the cheapest remaining upside —
+try the `terse` level and measure.
+
+## What can be claimed after Part 4
+
+> ~10% cheaper, ~33% fewer tokens, ~25% fewer turns and ~19% faster on
+> mixed coding work; best on exploration (up to 42%), roughly neutral on
+> some tasks.
+
+Still with a CI spanning zero. Tighten it before publishing anything.
