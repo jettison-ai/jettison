@@ -349,3 +349,22 @@ def test_uninstall_is_client_specific(tmp_path):
     add_repo_map(tmp_path, client="codex")
     assert remove_repo_map(tmp_path, client="claude") is False
     assert remove_repo_map(tmp_path, client="codex") is True
+
+
+def test_detects_caveman_and_skips_its_own_style(tmp_path):
+    """Two sets of response-style instructions cost tokens and can
+    contradict each other, so Caveman's takes precedence."""
+    from jettison.optimize import coexist
+
+    (tmp_path / "CLAUDE.md").write_text("# Rules\n\n<!-- caveman:style -->\nbe terse\n")
+    found = coexist.detect(tmp_path)
+    assert found.caveman is True
+    assert coexist.should_skip_verbosity(tmp_path) is True
+    assert any("Caveman detected" in n for n in coexist.notes(found))
+
+
+def test_no_other_tools_detected_in_clean_project(tmp_path):
+    from jettison.optimize import coexist
+
+    (tmp_path / "CLAUDE.md").write_text("# Rules\n\nnothing special\n")
+    assert coexist.detect(tmp_path).caveman is False

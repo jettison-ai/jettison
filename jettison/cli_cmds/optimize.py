@@ -41,6 +41,7 @@ def optimize_cmd(
     from jettison.optimize import (
         add_delegation_rule,
         add_repo_map,
+        coexist,
         install_hook,
         install_scout,
         verbosity,
@@ -49,11 +50,19 @@ def optimize_cmd(
     console = Console()
     console.print()
 
+    # Other optimizers are collaborators, not competitors. Report what is
+    # present and adjust rather than fighting over the same surface.
+    found = coexist.detect(project)
+    for note in coexist.notes(found):
+        console.print(f"[cyan]•[/cyan] {note}")
+    if found.any:
+        console.print()
+
     md, tokens = add_repo_map(project, client=client)
     console.print(f"[green]✓[/green] repo map  [dim]{md}[/dim]")
     console.print(f"  [dim]{tokens:,} tokens indexing the whole codebase, so the agent never explores[/dim]")
 
-    if not no_terse:
+    if not no_terse and not found.caveman:
         md = verbosity.install(project, terse_level, client=client)
         console.print(f"[green]✓[/green] output style ({terse_level})  [dim]{md}[/dim]")
         console.print("  [dim]output is billed ~50x cache-read and re-sent every later turn[/dim]")

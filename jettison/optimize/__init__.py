@@ -1,4 +1,4 @@
-from jettison.optimize import verbosity
+from jettison.optimize import coexist, verbosity
 from jettison.optimize.hooks import install_hook, is_installed, uninstall_hook
 from jettison.optimize.importance import WEIGHTS, score
 from jettison.optimize.repomap import build as build_repo_map
@@ -24,5 +24,6 @@ __all__ = [
     "score",
     "uninstall_hook",
     "uninstall_scout",
+    "coexist",
     "verbosity",
 ]
