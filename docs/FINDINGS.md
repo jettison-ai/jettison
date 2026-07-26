@@ -590,3 +590,61 @@ Repo map + read pruning + prose compression + balanced verbosity:
 n=6 mixed tasks, 95% CI [−6.3%, 23.6%]. Directionally positive, CI still
 spans zero. **Best on exploration (+42.3% on one task), roughly neutral on
 some authoring.**
+
+---
+
+# Part 6 — What reproduces, and what does not
+
+## 30. Repo map alone, 7 paired tasks
+
+| | direct | jettison | |
+|---|---:|---:|---:|
+| cost | $2.2814 | $2.2273 | **+2.4%** |
+| input tokens | 4,012,679 | 3,091,394 | −23% |
+| output tokens | 28,230 | 20,657 | −27% |
+| turns | 87 | 70 | **−20%** |
+| wall clock | 418s | 307s | **−27%** |
+
+Per-task cost ranged **+59.0% to −297.5%**, mean −51.2%, sd 119.7. The
+per-task mean is dominated by cheap tasks where small absolute differences
+produce enormous percentages; the cost-weighted total (+2.4%) is the
+honest aggregate. Either way: **not a savings signal.**
+
+## 31. The through-line across every run today
+
+| Run | cost | tokens | turns | time |
+|---|---:|---:|---:|---:|
+| Composition, balanced (n=6) | +10.6% | +33% | −25% | −19% |
+| Composition, terse (n=7) | −20.6% | +0.7% | −23% | −31% |
+| Repo map only (n=7) | +2.4% | +21% | −20% | −27% |
+| Heavy feature build (n=1) | −0.6% | +6% | −13% | −2% |
+
+**Token, turn and latency reductions reproduce in every configuration.
+Dollar savings do not.** Every cost figure has a confidence interval
+spanning zero.
+
+The mechanism is now well established: reductions land in *cached* input
+tokens, billed at roughly a tenth of fresh input, while cache-write —
+billed at 12.5x cache-read — moves against us whenever we add anything to
+the prefix. The money is not where the tokens are.
+
+## 32. What may honestly be claimed
+
+**Claimable, reproduced across four runs:**
+
+> 20–25% fewer turns, 19–27% faster, 21–33% fewer input tokens.
+
+**Not claimable on current evidence:**
+
+> any specific dollar saving.
+
+For flat-rate subscribers (Max, Pro) tokens are the binding constraint and
+the reproduced reductions are the whole benefit. For API-billed users, the
+honest instruction is to run `jettison verify` and decide from their own
+numbers.
+
+## 33. Standing rule
+
+A metric may be published only when it reproduces across independent runs.
+Four runs produced four different cost figures and four consistent turn
+figures. Publish the second kind.

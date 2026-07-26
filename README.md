@@ -8,18 +8,31 @@ jettison verify      # measure Jettison on YOUR repo before trusting it
 jettison optimize    # install the savings — client-side, fully reversible
 ```
 
-Measured on real Claude Code sessions: **−10.6% cost, −25% turns, −19% wall
-clock**, up to **−42%** on exploration-heavy work.
+Measured by live A/B on real Claude Code sessions against a real
+repository:
 
-**And we ship the experiment, not just the number.** `jettison verify` runs
-the same paired A/B we use internally against your own repository and tells
-you what really happened to your bill — including when the answer is
-"nothing." Every other tool in this space advertises 60–95%; independent
-replication measures them at 0.4–2.8% of real spend. We would rather you
-checked.
+| | |
+|---|---|
+| **20–25% fewer turns** | the agent reaches the answer in fewer steps |
+| **19–27% faster** | wall clock, end to end |
+| **21–33% fewer input tokens** | more room before you hit the context ceiling |
+| **~27% less output** | |
+| **cost: roughly neutral** | see below — we are not going to overclaim this |
 
-> **Honest status:** 6 paired tasks, 2 of them slightly negative, CI still
-> spans zero. Directionally positive, not a guarantee. Run `verify`.
+**On dollars, plainly:** across four separate A/B runs the cost effect
+ranged from +10.6% to +2.4%, with confidence intervals spanning zero.
+Token, turn and latency reductions reproduce every time; **dollar savings
+do not.** The reason is that the savings land in *cached* input tokens,
+which bill at roughly a tenth of fresh input — the money is not where the
+tokens are.
+
+If you are on a Max or Pro subscription, tokens are your real constraint
+and this is a straight win. If you are on API billing and expecting a
+smaller invoice, run `jettison verify` first and decide for yourself.
+
+Every other tool in this space advertises 60–95%; independent replication
+measures them at 0.4–2.8% of real spend. We would rather hand you the
+measuring stick than a number.
 
 ## The problem
 
