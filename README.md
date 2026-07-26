@@ -13,7 +13,7 @@ Jettison shrinks what it carries.**
 repo map · read pruning · prose compression · client-side · local-first
 
 [![CI](https://github.com/jettison-ai/jettison/actions/workflows/ci.yml/badge.svg)](https://github.com/jettison-ai/jettison/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-123%20passing-brightgreen)](https://github.com/jettison-ai/jettison/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-124%20passing-brightgreen)](https://github.com/jettison-ai/jettison/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 

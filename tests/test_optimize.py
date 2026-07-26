@@ -62,6 +62,31 @@ def test_hook_install_preserves_foreign_settings(tmp_path):
     assert "someone-elses-tool" in left and "jettison" not in left
 
 
+def test_hook_is_reversible_in_both_command_shapes(tmp_path, monkeypatch):
+    """Reversibility must not depend on how the hook command was spelled.
+
+    `hook_command()` emits the console-script path when `jettison-hook` is on
+    PATH and the `-m jettison.hook.runner` form otherwise. Recognition used
+    to match only the dotted module name, so a normal pip install — the one
+    shape real users get — produced a hook that `is_installed` reported as
+    absent and `uninstall_hook` refused to remove. Running the suite from a
+    venv that is not on PATH hid it, so pin both shapes explicitly.
+    """
+    shapes = {
+        "console_script": '"/opt/venv/bin/jettison-hook"',
+        "module_form": '"/usr/bin/python3" -m jettison.hook.runner',
+    }
+    for name, command in shapes.items():
+        monkeypatch.setattr("jettison.optimize.hooks.hook_command", lambda c=command: c)
+        project = tmp_path / name
+        project.mkdir()
+
+        install_hook(project)
+        assert is_installed(project), f"not detected after install: {command}"
+        assert uninstall_hook(project) is True, f"not removed: {command}"
+        assert not is_installed(project)
+
+
 def test_hook_refuses_to_clobber_invalid_json(tmp_path):
     s = tmp_path / ".claude" / "settings.local.json"
     s.parent.mkdir(parents=True)

@@ -22,6 +22,13 @@ from pathlib import Path
 from typing import Any
 
 HOOK_MARKER = "jettison.hook"
+# `hook_command()` emits two shapes and both must be recognisable as ours:
+# the console script path (".../bin/jettison-hook") and the module form
+# ("-m jettison.hook.runner"). Matching only the dotted module name meant a
+# normal pip install — where the console script is on PATH — installed a
+# hook that `is_installed` could not see and `uninstall_hook` would not
+# remove, so `jettison unoptimize` silently left it behind.
+HOOK_MARKERS = (HOOK_MARKER, "jettison-hook")
 PRUNE_MATCHER = "Read"
 # Prose-bearing tools get the same hook; the runner routes by content type.
 PROSE_MATCHER = "Bash"
@@ -46,6 +53,12 @@ def hook_command() -> str:
     return f'"{sys.executable}" -m {HOOK_MARKER}.runner'
 
 
+def _is_ours(entry: Any) -> bool:
+    """Whether a PostToolUse entry was installed by Jettison."""
+    blob = json.dumps(entry)
+    return any(m in blob for m in HOOK_MARKERS)
+
+
 def _load(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -63,7 +76,7 @@ def install_hook(project: Path | None = None, global_scope: bool = False) -> Pat
 
     hooks = settings.setdefault("hooks", {})
     entries = hooks.setdefault("PostToolUse", [])
-    entries = [e for e in entries if HOOK_MARKER not in json.dumps(e)]
+    entries = [e for e in entries if not _is_ours(e)]
     for matcher in (PRUNE_MATCHER, PROSE_MATCHER):
         entries.append(
             {
@@ -84,7 +97,7 @@ def uninstall_hook(project: Path | None = None, global_scope: bool = False) -> b
     entries = (settings.get("hooks") or {}).get("PostToolUse")
     if not isinstance(entries, list):
         return False
-    kept = [e for e in entries if HOOK_MARKER not in json.dumps(e)]
+    kept = [e for e in entries if not _is_ours(e)]
     if len(kept) == len(entries):
         return False
     settings["hooks"]["PostToolUse"] = kept
@@ -100,4 +113,7 @@ def is_installed(project: Path | None = None, global_scope: bool = False) -> boo
     path = settings_path(project, global_scope)
     if not path.exists():
         return False
-    return HOOK_MARKER in path.read_text()
+    entries = (_load(path).get("hooks") or {}).get("PostToolUse")
+    if not isinstance(entries, list):
+        return False
+    return any(_is_ours(e) for e in entries)
