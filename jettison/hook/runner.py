@@ -18,11 +18,14 @@ import sys
 from typing import Any
 
 from jettison.hook.prune import MUST_KEEP, prune_read_output
+from jettison.hook.prose import compress_prose
 
-# Tools whose output is worth pruning. Bash is excluded: its output is
-# frequently a command's only result and has no line-number scaffolding to
-# make an elision recoverable.
+# Tools whose output is worth line-pruning. Bash is excluded: its output
+# has no line-number scaffolding, so an elision would not be recoverable.
 PRUNABLE_TOOLS = {"Read", "read_file", "view"}
+# Tools whose output is usually prose — logs, build errors, test failures.
+# Routed to the prose compressor instead, and only if it really is prose.
+PROSE_TOOLS = {"Bash", "BashOutput", "WebFetch", "WebSearch"}
 
 
 def last_user_text(transcript_path: str) -> str:
@@ -97,8 +100,32 @@ def number_lines(text: str, start: int) -> str:
     return "\n".join(f"{start + i:6}\u2192{line}" for i, line in enumerate(text.splitlines()))
 
 
+def handle_prose(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Compress prose tool output (logs, build errors) via Kompress.
+
+    Gated twice: the tool must be one that usually emits prose, and the
+    content itself must classify as prose. Code routed here would be
+    corrupted, not compressed.
+    """
+    raw, _ = read_output(event)
+    if not raw.strip():
+        return None
+    result = compress_prose(raw, str(event.get("tool_name", "")))
+    if not result.compressed:
+        return None
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "updatedToolOutput": result.text,
+        }
+    }
+
+
 def handle(event: dict[str, Any]) -> dict[str, Any] | None:
-    if event.get("tool_name") not in PRUNABLE_TOOLS:
+    tool = event.get("tool_name")
+    if tool in PROSE_TOOLS:
+        return handle_prose(event)
+    if tool not in PRUNABLE_TOOLS:
         return None
     raw, start_line = read_output(event)
     if not raw.strip():

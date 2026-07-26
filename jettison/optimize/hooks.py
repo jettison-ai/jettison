@@ -23,6 +23,8 @@ from typing import Any
 
 HOOK_MARKER = "jettison.hook"
 PRUNE_MATCHER = "Read"
+# Prose-bearing tools get the same hook; the runner routes by content type.
+PROSE_MATCHER = "Bash"
 
 
 def settings_path(project: Path | None = None, global_scope: bool = False) -> Path:
@@ -62,12 +64,13 @@ def install_hook(project: Path | None = None, global_scope: bool = False) -> Pat
     hooks = settings.setdefault("hooks", {})
     entries = hooks.setdefault("PostToolUse", [])
     entries = [e for e in entries if HOOK_MARKER not in json.dumps(e)]
-    entries.append(
-        {
-            "matcher": PRUNE_MATCHER,
-            "hooks": [{"type": "command", "command": hook_command(), "timeout": 20}],
-        }
-    )
+    for matcher in (PRUNE_MATCHER, PROSE_MATCHER):
+        entries.append(
+            {
+                "matcher": matcher,
+                "hooks": [{"type": "command", "command": hook_command(), "timeout": 20}],
+            }
+        )
     hooks["PostToolUse"] = entries
     path.write_text(json.dumps(settings, indent=2) + "\n")
     return path

@@ -236,3 +236,86 @@ def test_verbosity_block_is_replaceable(tmp_path):
     assert verbosity.uninstall(tmp_path) is True
     assert "jettison" not in (tmp_path / "CLAUDE.md").read_text()
     assert "keep me" in (tmp_path / "CLAUDE.md").read_text()
+
+
+# --- content-type routing: the guardrail that stops code being corrupted ---
+
+PY_CODE = "from __future__ import annotations\n\nimport os\n\n\ndef handler(x):\n    return x + 1\n"
+LOG_TEXT = (
+    "Build started at 10:32. Resolving dependencies from the registry. "
+    "Warning: the configuration file was not found in the expected location, "
+    "falling back to defaults. Compilation finished with 3 warnings. " * 12
+)
+
+
+def test_python_code_is_classified_as_code():
+    from jettison.hook.content_type import classify
+
+    assert classify(PY_CODE) == "code"
+
+
+def test_numbered_read_output_is_code():
+    from jettison.hook.content_type import classify
+
+    assert classify("     1→hello\n     2→world\n") == "code"
+
+
+def test_read_tool_output_is_always_code_regardless_of_content():
+    """A file is a file even if it happens to read like prose."""
+    from jettison.hook.content_type import classify
+
+    assert classify("just some english sentences here.", tool_name="Read") == "code"
+
+
+def test_json_is_detected():
+    from jettison.hook.content_type import classify
+
+    assert classify('{"a": 1, "b": [2, 3]}') == "json"
+
+
+def test_build_log_is_prose():
+    from jettison.hook.content_type import classify
+
+    assert classify(LOG_TEXT, tool_name="Bash") == "prose"
+
+
+def test_prose_compressor_refuses_code():
+    """The bug this prevents: Kompress turns
+    'from __future__ import annotations' into '__future__ annotations'."""
+    from jettison.hook.prose import compress_prose
+
+    r = compress_prose(PY_CODE * 40, tool_name="Bash")
+    assert r.compressed is False
+    assert "code" in r.reason
+    assert r.text == PY_CODE * 40          # returned untouched
+
+
+def test_prose_compressor_fails_open_without_kompress(monkeypatch):
+    import jettison.hook.prose as prose
+
+    monkeypatch.setattr(prose, "_compressor", None)
+    monkeypatch.setattr(prose, "_unavailable", True)
+    r = prose.compress_prose(LOG_TEXT, tool_name="Bash")
+    assert r.compressed is False
+    assert r.text == LOG_TEXT
+
+
+def test_hook_routes_bash_to_prose_not_pruner(monkeypatch):
+    """Bash output must never reach the line pruner — it has no line
+    numbers, so an elision there would not be recoverable."""
+    import jettison.hook.runner as runner
+    from jettison.hook.prose import ProseResult
+
+    seen = {}
+
+    def fake_prose(text, tool_name=""):
+        seen["tool"] = tool_name
+        return ProseResult(text, False, "stub")
+
+    def fail_prune(*a, **k):
+        raise AssertionError("Bash output must not reach the line pruner")
+
+    monkeypatch.setattr(runner, "compress_prose", fake_prose)
+    monkeypatch.setattr(runner, "prune_read_output", fail_prune)
+    runner.handle({"tool_name": "Bash", "tool_response": {"file": {"content": LOG_TEXT}}})
+    assert seen["tool"] == "Bash"
