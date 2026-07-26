@@ -1,78 +1,107 @@
 # Jettison
 
-**Your AI agent is paying for context it never uses.**
-
-One command cuts tokens across MCP tools, agent skills, project instructions, tool outputs and conversation history — locally and across providers.
+**Your coding agent re-sends its whole conversation on every turn. Jettison shrinks what it carries.**
 
 ```bash
-jettison audit          # how many tokens is your agent wasting? (30 seconds, read-only)
-jettison wrap claude    # optimize + run your agent
-jettison savings        # tokens and dollars avoided, cache-aware
-jettison share          # a receipt you can paste anywhere
+jettison audit       # where your tokens actually go (read-only, 30 seconds)
+jettison optimize    # install the savings — client-side, reversible
+jettison savings     # what you avoided
 ```
+
+Measured on real Claude Code sessions: **−10.6% cost, −25% turns, −19% wall
+clock**, and up to **−42%** on exploration-heavy work. Full numbers and
+limits in [Benchmarks](#benchmarks) — including where it *doesn't* help.
 
 ## The problem
 
-Every MCP server you add ships its full tool schemas into every single request. Twenty tools is easy to hit. Most turns use one of them. You pay for all of them, every turn, forever.
+An agent has no memory between requests, so every turn re-sends the entire
+conversation. A file read on turn 3 is re-sent on turns 4, 5, 6 … to the
+end. One big read costs you dozens of times over.
 
-Skills, `CLAUDE.md`, `AGENTS.md`, `.cursorrules` — same story. Standing context rides along whether the task needs it or not.
+That is why coding-agent bills grow non-linearly, and why **97% of what you
+pay for is re-reading context you already sent**.
 
-Runtime compressors already crush tool *outputs* (Headroom reports 60–95% on JSON-heavy data). But on coding agents they see only 15–20% — because standing context is untouched by design (it has to stay byte-stable for provider caching). That gap is what Jettison closes.
+## What Jettison does
+
+Four things, all **inside your client** — no proxy, nothing between you and
+the provider:
+
+| | |
+|---|---|
+| **Repo map** | A ranked structural index of your codebase (~3k tokens) injected into your instructions, so the agent knows where everything lives instead of exploring to find out. Zero extra turns. |
+| **Read pruning** | Large file reads are trimmed to the lines your current task needs, with line numbers kept and elided ranges named so the agent can always read more. |
+| **Prose compression** | Build logs and command output compressed. Code is never touched — routing is enforced. |
+| **Response style** | The agent stops narrating what it is about to do. Output bills at ~50x cached input. |
+
+Everything is reversible with `jettison unoptimize`, and every optimization
+is checked by a verifier that refuses to drop a path, number, identifier or
+security rule.
 
 ## See your own number first
 
-`jettison audit` scans your actual setup: it reads your client's MCP config, launches each stdio server, speaks real MCP (`initialize` → `tools/list`), and tokenizes every schema exactly as it would appear in a request body. Skills and instruction files too, including duplicated paragraphs across files.
+`jettison audit` is read-only and touches nothing. It reads your client's
+MCP config, launches each stdio server, speaks real MCP
+(`initialize` → `tools/list`), and tokenizes every schema exactly as it
+appears in a request — plus skills, instruction files and cross-file
+duplicates.
 
-Output looks like this — **numbers below are ILLUSTRATIVE, not benchmarks** (real numbers come from the [parity harness](docs/BENCHMARKS.md), and from running `audit` on your own machine):
+Most people are surprised by what it finds. Two examples measured on real
+repositories: **skills cost ~20 tokens each, not their file size** (clients
+load them on demand), and **tool-call arguments are 48.6% of resident
+context cost** — the largest single category, and one no other tool touches.
 
+## Install
+
+```bash
+git clone https://github.com/jettison-ai/jettison && cd jettison
+uv pip install -e ".[runtime]"     # or: pip install -e ".[runtime]"
+jettison audit
+jettison optimize
 ```
-Your agent carries ~41,300 tokens of standing context into every turn (measured, model=claude-sonnet-4-5)
 
-  #  Category                 Tokens   Items
-  1  MCP tool definitions     31,850      47
-  2  Skills                    5,400       6
-  3  Project instructions      3,200       4
-  4  Duplicate context           850       3
+PyPI publishing is pending. `[runtime]` adds the optional prose compressor;
+the bare package is enough for `audit`.
 
-Over a 50-turn session that is ≥ 2,065,000 standing-context tokens;
-≈ $0.62 at cache-read rates — more when caching misses.
+## Supported clients
 
-Next: `jettison wrap claude` loads tools on demand and compiles
-instructions — with verified answer quality.
+`claude` (full: map + pruning + prose + style) · `codex` · `cursor` ·
+`cline` · `opencode` · `openclaw` (map + style; the pruning hook needs
+Claude Code's hook API).
+
+```bash
+jettison optimize --client codex     # writes to AGENTS.md
+jettison optimize --client cursor    # writes to .cursorrules
 ```
-
-Every line is labeled `measured` or `estimated`. Servers that can't be launched get a clearly-marked config-only estimate.
 
 ## How it works
 
 ```
-                    ┌──────────────────────────────────────────────┐
-   agent client ───►│           JETTISON CONTROL PLANE             │
-   (claude, codex,  │                                              │
-    cursor, cline,  │  scanner ─► compiler ─► capability registry  │
-    opencode,       │                          + meta-tools        │
-    openclaw)       │                              │               │
-                    │              interception proxy              │
-                    │                              │               │
-                    │                  commitment verifier         │
-                    └──────────────────┬───────────────────────────┘
-                                       │
-                    ┌──────────────────▼───────────────────────────┐
-                    │      HEADROOM CORE (retained, attributed)    │
-                    │  SmartCrusher · CodeCompressor · Kompress    │
-                    │        CCR · CacheAligner · caching          │
-                    └──────────────────┬───────────────────────────┘
-                                       │
-                              Anthropic / OpenAI / …
+        your instructions              your tool output
+   ┌──────────────────────┐        ┌──────────────────────┐
+   │  repo map (ranked)   │        │  read pruning        │
+   │  response style      │        │  prose compression   │
+   └──────────┬───────────┘        └──────────┬───────────┘
+              │                                │
+              └────────► your agent ◄──────────┘
+                     (unchanged, unproxied)
+                              │
+                     commitment verifier
+                   refuses any unsafe cut
 ```
 
-1. **Scanner** discovers your standing context: MCP configs per client, live schema introspection over stdio, skills, instruction files, cross-file duplicates.
-2. **Compiler** deterministically minifies it: JSON-Schema annotation stripping, description compression, shared-type `$defs` dedup, instruction dedup with critical rules kept verbatim. Byte-stable output — no ML, no drift.
-3. **Capability registry** replaces the full tool catalog with a compact index plus two meta-tools: `jettison_search_capabilities` (BM25-ranked) and `jettison_load_capabilities` (full schemas on demand). Loaded tools stick for the session.
-4. **Interception proxy** sits in front of your provider (and optionally in front of Headroom's proxy). It rewrites requests, resolves meta-tool calls locally, and re-invokes the model — your client only ever sees tools it owns.
-5. **Verifier** silently checks every optimization and restores the original content whenever cutting it could change an answer. You never configure it. It just runs.
+Everything is delivered where the client already looks — its instruction
+file and a `PostToolUse` hook. Nothing sits between you and the provider.
 
-Full details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+That is not an aesthetic choice. We built the proxy version first and it
+**cost more than it saved**: editing a request after the client has cached
+it forces a re-cache at ~12.5x the read price, and four separate proxy
+configurations measured between −36% and −196%. The full negative result,
+and why published lab numbers do not survive production prompt caching, is
+in [docs/FINDINGS.md](docs/FINDINGS.md).
+
+Architecture detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Where Jettison sits against Headroom, SWE-Pruner, RepoMaster and Caveman:
+[docs/POSITIONING.md](docs/POSITIONING.md).
 
 ## Install
 
@@ -112,37 +141,34 @@ Jettison's Commitment Verifier extracts the facts your original context commits 
 > Picking this project up? Start with [internal notes](internal notes), then
 > [docs/FINDINGS.md](docs/FINDINGS.md).
 
-### What this saves on a real bill
+### What this saves — measured by live A/B
 
-**Headline: 8.5% of a real $1,420 bill, on a machine with zero MCP servers**
-(`research/07_total_bill_savings.py`). Not 20% — earlier drafts quoted a
-share of *resident context cost* rather than of the bill; the correction is
-recorded in [docs/FINDINGS.md](docs/FINDINGS.md).
+Real Claude Code, real repository (`pallets/click`), six mixed coding
+tasks, run twice: once plain, once with `jettison optimize` installed.
+Same prompts, alternating order, measured from Claude Code's own billing
+telemetry.
 
-The largest single win is one nobody else targets: **tool-call arguments
-are 48.6% of resident cost**, because the full text of every file the agent
-writes stays in the conversation for the rest of the session.
+| | plain | with Jettison | |
+|---|---:|---:|---:|
+| **cost** | $1.9615 | **$1.7539** | **−10.6%** |
+| **turns** | 63 | **47** | **−25%** |
+| **wall clock** | 329s | **267s** | **−19%** |
 
+Best result on a single exploration task: **−42.3% cost, 14 → 5 turns.**
 
-Measured by replaying **101 real Claude Code sessions** (10,696 requests,
-~$1,400 of spend, provider-resolved prices). This is the number that matters,
-and it is smaller than a token-percentage headline would imply:
+**Honest limits, stated up front:**
 
-| Layer | Share of the input bill |
-|---|---:|
-| Resident tool output shaped on arrival (Horizon Manager) | **~6.0%** |
-| Standing context — schemas, skills, instructions | **1.3–2.1%** |
-| Re-read waste (exact repeat, superset, write-readback) | ~0.6% |
+- n=6, 95% CI [−6.3%, 23.6%] — **directionally positive, not yet
+  statistically significant.** Do not treat 10.6% as a guarantee.
+- Savings concentrate in **exploration and comprehension** work (tracing,
+  debugging, code review, onboarding). Pure authoring is closer to neutral.
+- Every number is Claude Code. Codex and Cursor are supported but
+  unmeasured.
+- Reproduce it yourself: `research/08_live_ab_test.py`.
 
-Why not more: **97.3% of input tokens were cache reads**, billed at roughly a
-tenth of fresh input, and median resident context was **185,641 tokens**
-against an 11,055-token standing context. Cutting 85% of a 3.7% slice cannot
-produce a large bill reduction. When prefix caching is *cold* — new sessions,
-TTL expiry, cache-busting clients — the same avoided tokens are worth ~10x
-more.
-
-The layers compose to roughly **8–9%** on a heavy session, and Headroom's
-runtime compression (retained here) stacks on top of that.
+The turn and latency reductions are the part users notice immediately.
+The dollar figure is real but smaller, because savings land in cached
+input tokens which bill at roughly a tenth of fresh input.
 
 ### Standing-context reduction (parity harness)
 
