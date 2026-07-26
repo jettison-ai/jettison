@@ -1,4 +1,18 @@
-"""Scout: repository navigation on a cheap model.
+"""Scout: repository navigation on a cheap model. DEPRECATED.
+
+Superseded by `repomap.py`. Delegation costs a round-trip every time it
+fires, so on authoring work — where there is nothing to explore — it is
+pure overhead: measured −34% on a feature build. The repo map reaches the
+same goal with **zero** turns and, unlike scout, makes authoring
+*profitable* (+16.8% on the same class of task).
+
+Retained only because it is opt-in behind `--scout` and someone may want
+it for a repository too large to index. Do not enable it by default, and
+do not extend it without re-measuring against the map.
+
+Original rationale follows.
+
+Scout: repository navigation on a cheap model.
 
 The dominant cost driver in coding agents is repository-context selection
 — agents read whole files with the *same* expensive model that solves the
